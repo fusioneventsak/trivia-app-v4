@@ -53,9 +53,11 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
         }
       })
       .subscribe((status, err) => {
-        console.log(`Game session subscription status: ${status}`);
+        if (status === 'SUBSCRIBED') {
+          console.log(`Subscribed to game session changes for room ${roomId}`);
+        }
         if (err) {
-          console.error('Game session subscription error:', err);
+          console.error(`Error subscribing to game session changes: ${err}`);
           callbacks.onError?.(err);
         }
       });
@@ -71,108 +73,66 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
         filter: `room_id=eq.${roomId}`
       }, async () => {
         try {
-          const { data: players, error } = await supabase
+          const { data, error } = await supabase
             .from('players')
             .select('id, name, score, room_id, stats')
             .eq('room_id', roomId)
             .order('score', { ascending: false });
-
+            
           if (error) {
             console.error('Error fetching players:', error);
             callbacks.onError?.(error);
             return;
           }
 
-          console.log('Player update received, fetched players:', players?.length);
-          callbacks.onPlayerChange?.(players || []);
+          console.log('Player update received, fetched players:', data?.length);
+          callbacks.onPlayerChange?.(data || []);
         } catch (error) {
           console.error('Error fetching players:', error);
           callbacks.onError?.(error);
         }
       })
       .subscribe((status, err) => {
-        console.log(`Players subscription status: ${status}`);
+        if (status === 'SUBSCRIBED') {
+          console.log(`Subscribed to player changes for room ${roomId}`);
+        }
         if (err) {
-          console.error('Players subscription error:', err);
+          console.error(`Error subscribing to player changes: ${err}`);
           callbacks.onError?.(err);
         }
       });
 
     channels.push(playerChannel);
 
-    // Subscribe to activation changes directly - critical for real-time updates
+    // Subscribe to activation updates for poll state changes
     const activationChannel = supabase.channel(`activation_updates_${roomId}`)
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: 'UPDATE',
         schema: 'public',
         table: 'activations',
-        filter: `room_id=eq.${roomId} AND is_template=eq.false`
-      }, async (payload) => {
-        console.log('New activation created:', payload.new);
-        
-        try {
-          // Check if this activation is currently active in the game session
-          const { data: session } = await supabase
-            .from('game_sessions')
-            .select('current_activation')
-            .eq('room_id', roomId)
-            .maybeSingle();
-            
-          if (session?.current_activation === payload.new.id) {
-            // This is the current activation, update the UI
-            callbacks.onActivationChange?.(payload.new);
+        filter: `room_id=eq.${roomId}`
+      }, (payload) => {
+        if (payload.new && payload.new.id === (currentActivation?.id)) {
+          // Check if poll state changed
+          if (payload.new.poll_state !== payload.old?.poll_state) {
+            setPollState(payload.new.poll_state || 'pending');
           }
-        } catch (error) {
-          console.error('Error checking if activation is current:', error);
-          callbacks.onError?.(error);
+          
+          // Update activation data
+          setCurrentActivation(payload.new as Activation);
         }
       })
       .subscribe((status, err) => {
-        console.log(`Activations subscription status: ${status}`);
+        if (status === 'SUBSCRIBED') {
+          console.log(`Subscribed to activation updates for room ${roomId}`);
+        }
         if (err) {
-          console.error('Activations subscription error:', err);
+          console.error(`Error subscribing to activation updates: ${err}`);
           callbacks.onError?.(err);
         }
       });
       
     channels.push(activationChannel);
-
-    // Subscribe to activation updates - for poll state changes and other updates
-    const activationUpdateChannel = supabase.channel(`activation_update_${roomId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'activations',
-        filter: `room_id=eq.${roomId} AND is_template=eq.false`
-      }, async (payload) => {
-        console.log('Activation updated:', payload.new);
-        
-        try {
-          // Check if this is the current activation
-          const { data: session } = await supabase
-            .from('game_sessions')
-            .select('current_activation')
-            .eq('room_id', roomId)
-            .maybeSingle();
-            
-          if (session?.current_activation === payload.new.id) {
-            // This is the current activation, update the UI
-            callbacks.onActivationChange?.(payload.new);
-          }
-        } catch (error) {
-          console.error('Error checking if updated activation is current:', error);
-          callbacks.onError?.(error);
-        }
-      })
-      .subscribe((status, err) => {
-        console.log(`Activation updates subscription status: ${status}`);
-        if (err) {
-          console.error('Activation updates subscription error:', err);
-          callbacks.onError?.(err);
-        }
-      });
-      
-    channels.push(activationUpdateChannel);
 
     // Fetch initial state
     const fetchInitialState = async () => {
