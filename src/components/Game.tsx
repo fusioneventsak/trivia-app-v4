@@ -730,17 +730,7 @@ export default function Game() {
       setPollVotes(newVotes);
       setTotalVotes(totalVotes + 1);
       
-      // Broadcast vote to all clients through Supabase channel
-      const channel = supabase.channel(`poll-${activeQuestion.id}`);
-      await channel.subscribe();
-      
-      await channel.send({
-        type: 'broadcast',
-        event: 'poll-vote',
-        payload: { votes: newVotes }
-      });
-      
-      // Log the vote
+      // Log the vote to the database first to ensure persistence
       await supabase.from('analytics_events').insert([{
         event_type: 'poll_vote',
         room_id: roomId,
@@ -752,6 +742,16 @@ export default function Game() {
           answer: answer
         }
       }]);
+      
+      // Broadcast vote to all clients through Supabase channel
+      const channel = supabase.channel(`poll-${activeQuestion.id}`);
+      await channel.subscribe();
+      
+      await channel.send({
+        type: 'broadcast',
+        event: 'poll-vote',
+        payload: { votes: newVotes }
+      });
       
       // Clean up
       setTimeout(() => {

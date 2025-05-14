@@ -475,7 +475,7 @@ export default function Results() {
   const initPollVotes = (activation: Activation) => {
     if (!activation.options) return;
     
-    // Initialize votes object
+    // Initialize votes object with zeros for all options
     const votes: PollVotes = {};
     activation.options.forEach(option => {
       votes[option.text] = 0;
