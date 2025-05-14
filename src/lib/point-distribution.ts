@@ -241,6 +241,7 @@ export async function hasPlayerVoted(
   playerId: string
 ): Promise<boolean> {
   try {
+    console.log(`Checking if player ${playerId} has voted in activation ${activationId}`);
     const { count, error } = await supabase
       .from('analytics_events')
       .select('*', { count: 'exact', head: true })
@@ -253,6 +254,7 @@ export async function hasPlayerVoted(
       return false;
     }
     
+    console.log(`Player ${playerId} has ${count > 0 ? '' : 'not '}voted in this poll`);
     return count > 0;
   } catch (error) {
     console.error('Error checking if player voted:', error);

@@ -494,6 +494,7 @@ export default function Results() {
   
   const fetchPollVotes = async (activationId: string) => {
     try {
+      console.log(`Fetching poll votes for activation ${activationId}`);
       const { data, error } = await supabase
         .from('analytics_events')
         .select('event_data')
