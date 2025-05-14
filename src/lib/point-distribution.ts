@@ -234,6 +234,33 @@ export async function hasPlayerAnswered(
 }
 
 /**
+ * Checks if a player has already voted in a poll
+ */
+export async function hasPlayerVoted(
+  activationId: string,
+  playerId: string
+): Promise<boolean> {
+  try {
+    const { count, error } = await supabase
+      .from('analytics_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('event_type', 'poll_vote')
+      .eq('activation_id', activationId)
+      .filter('event_data->player_id', 'eq', playerId);
+      
+    if (error) {
+      console.error('Error checking if player voted:', error);
+      return false;
+    }
+    
+    return count > 0;
+  } catch (error) {
+    console.error('Error checking if player voted:', error);
+    return false;
+  }
+}
+
+/**
  * Gets the current leaderboard for a room
  */
 export async function getLeaderboard(roomId: string): Promise<any[]> {

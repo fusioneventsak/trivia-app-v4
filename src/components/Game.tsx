@@ -11,7 +11,7 @@ import PointAnimation from './ui/PointAnimation';
 import PointsDisplay from './ui/PointsDisplay';
 import { calculatePoints, POINT_CONFIG } from '../lib/point-calculator';
 import LeaderboardItem from './ui/LeaderboardItem';
-import { distributePoints, hasPlayerAnswered } from '../lib/point-distribution';
+import { distributePoints, hasPlayerAnswered, hasPlayerVoted } from '../lib/point-distribution';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 
@@ -478,6 +478,27 @@ export default function Game() {
         // Update state
         setPollVotes(votes);
         setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+        
+        // Check if current player has already voted
+        if (currentPlayerId) {
+          const hasVoted = await hasPlayerVoted(activationId, currentPlayerId);
+          setPollVoted(hasVoted);
+          
+          // If they've voted, find what they voted for
+          if (hasVoted) {
+            const { data: playerVote } = await supabase
+              .from('analytics_events')
+              .select('event_data')
+              .eq('event_type', 'poll_vote')
+              .eq('activation_id', activationId)
+              .filter('event_data->player_id', 'eq', currentPlayerId)
+              .single();
+              
+            if (playerVote?.event_data?.answer) {
+              setSelectedAnswer(playerVote.event_data.answer);
+            }
+          }
+        }
       }
     } catch (err) {
       console.error('Error fetching poll votes:', err);
@@ -721,6 +742,16 @@ export default function Game() {
     }
     
     try {
+      // Check if player has already voted in this poll
+      if (currentPlayerId) {
+        const alreadyVoted = await hasPlayerVoted(activeQuestion.id, currentPlayerId);
+        if (alreadyVoted) {
+          console.log('Player has already voted in this poll');
+          setPollVoted(true);
+          return;
+        }
+      }
+      
       setPollVoted(true);
       setSelectedAnswer(answer);
       

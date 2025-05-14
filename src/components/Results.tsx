@@ -11,6 +11,7 @@ import confetti from 'canvas-confetti';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
+import { hasPlayerVoted } from '../lib/point-distribution';
 
 interface Player {
   id: string;
