@@ -254,7 +254,7 @@ export default function Game() {
     };
   }, [roomId, currentPlayerId, debugMode]);
   
-  // Setup timer when activation changes
+  // Setup timer when activation changes or timer starts
   const setupTimer = (activation: any) => {
     // Clear any existing timer
     if (timerIntervalRef.current) {
@@ -440,6 +440,7 @@ export default function Game() {
   const initPollVotes = async (activation: Activation) => {
     if (!activation.options) return;
 
+    // Initialize votes object with zeros for all options
     const initialVotes: PollVotes = {};
     activation.options.forEach(option => {
       initialVotes[option.text] = 0;

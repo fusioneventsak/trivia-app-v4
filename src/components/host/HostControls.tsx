@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Play, PauseCircle, BarChart4, Eye, EyeOff, RefreshCw, AlertCircle, ExternalLink, Code, Trophy, Lock, Check, Info, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, PauseCircle, BarChart4, Eye, EyeOff, RefreshCw, AlertCircle, ExternalLink, Code, Lock, Check, Info, Clock } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useGameStore } from '../../store/gameStore';
 import { Link } from 'react-router-dom';

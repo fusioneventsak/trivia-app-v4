@@ -73,20 +73,20 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
         filter: `room_id=eq.${roomId}`
       }, async () => {
         try {
-          const { data, error } = await supabase
+          const { data: players, error } = await supabase
             .from('players')
             .select('id, name, score, room_id, stats')
             .eq('room_id', roomId)
             .order('score', { ascending: false });
-            
+
           if (error) {
             console.error('Error fetching players:', error);
             callbacks.onError?.(error);
             return;
           }
 
-          console.log('Player update received, fetched players:', data?.length);
-          callbacks.onPlayerChange?.(data || []);
+          console.log('Player update received, fetched players:', players?.length);
+          callbacks.onPlayerChange?.(players || []);
         } catch (error) {
           console.error('Error fetching players:', error);
           callbacks.onError?.(error);
@@ -104,22 +104,35 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
 
     channels.push(playerChannel);
 
-    // Subscribe to activation updates for poll state changes
-    const activationChannel = supabase.channel(`activation_updates_${roomId}`)
+    // Subscribe to activation updates (for timer starts and poll state changes)
+    const activations = supabase.channel(`activation_updates_${roomId}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'activations',
         filter: `room_id=eq.${roomId}`
       }, (payload) => {
-        if (payload.new && payload.new.id === (currentActivation?.id)) {
-          // Check if poll state changed
-          if (payload.new.poll_state !== payload.old?.poll_state) {
-            setPollState(payload.new.poll_state || 'pending');
+        if (payload.new && payload.new.id === payload.old?.id) {
+          // Check if this is the current activation
+          try {
+            // Get the current activation ID from the game session
+            supabase
+              .from('game_sessions')
+              .select('current_activation')
+              .eq('room_id', roomId)
+              .maybeSingle()
+              .then(({ data: session }) => {
+                if (session?.current_activation === payload.new.id) {
+                  // This is the current activation, update the UI
+                  callbacks.onActivationChange?.(payload.new);
+                }
+              })
+              .catch(err => {
+                console.error('Error checking current activation:', err);
+              });
+          } catch (error) {
+            console.error('Error in activation update handler:', error);
           }
-          
-          // Update activation data
-          setCurrentActivation(payload.new as Activation);
         }
       })
       .subscribe((status, err) => {
@@ -132,8 +145,8 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
         }
       });
       
-    channels.push(activationChannel);
-
+    channels.push(activations);
+      
     // Fetch initial state
     const fetchInitialState = async () => {
       try {
