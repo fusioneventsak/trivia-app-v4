@@ -105,14 +105,14 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
     channels.push(playerChannel);
 
     // Subscribe to activation updates for poll state changes
-    const activationSubscription = supabase.channel(`activation_updates_${roomId}`)
+    const activationChannel = supabase.channel(`activation_updates_${roomId}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'activations',
         filter: `room_id=eq.${roomId}`
       }, (payload) => {
-        if (payload.new && payload.new.id === (payload.old?.id)) {
+        if (payload.new && payload.new.id === (currentActivation?.id)) {
           // Check if this is the current activation
           try {
             // Get the current activation ID from the game session
@@ -145,7 +145,7 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
         }
       });
       
-    channels.push(activationSubscription);
+    channels.push(activationChannel);
       
     // Fetch initial state
     const fetchInitialState = async () => {
