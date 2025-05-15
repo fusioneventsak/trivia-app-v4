@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
 import { Trophy, Settings, CheckCircle, XCircle, Users, Send, Clock, PlayCircle, X, Lock, WifiOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -273,7 +273,6 @@ export default function Game() {
       // Clear any active timer
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
       }
     };
   }, [roomId, currentPlayerId, debugMode]);
@@ -911,6 +910,34 @@ export default function Game() {
   // Get active theme from room or default
   const activeTheme = room?.theme || theme;
 
+  // Debug panel
+  const renderDebugPanel = () => {
+    if (!debugMode) return null;
+    
+    return (
+      <div className="fixed bottom-0 left-0 right-0 bg-black/80 text-white p-2 text-xs font-mono z-50 max-h-40 overflow-auto">
+        <div className="flex justify-between mb-1">
+          <span className="font-bold">DEBUG MODE</span>
+          <button onClick={() => setDebugMode(false)} className="text-red-400">Close</button>
+        </div>
+        <div>Player ID: {currentPlayerId}</div>
+        <div>Player Name: {currentPlayer?.name}</div>
+        <div>Score: {currentPlayer?.score}</div>
+        <div>Stats: {JSON.stringify(currentPlayer?.stats)}</div>
+        <div>Room ID: {roomId}</div>
+        <div>Current Activation: {currentActivation?.substring(0, 8)}...</div>
+        <div>Has Answered: {hasAnswered ? 'Yes' : 'No'}</div>
+        <div>Is Correct: {isCorrect ? 'Yes' : 'No'}</div>
+        <div>Points Earned: {pointsEarned}</div>
+        <div>Answer Start Time: {answerStartTime ? new Date(answerStartTime).toISOString() : 'None'}</div>
+        <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
+        <div>Poll State: {pollState}</div>
+        <div>Poll Voted: {pollVoted ? 'Yes' : 'No'}</div>
+        <div>Selected Answer: {selectedAnswer}</div>
+      </div>
+    );
+  };
+
   if (networkError) {
     return (
       <div 
@@ -957,34 +984,6 @@ export default function Game() {
       </div>
     );
   }
-
-  // Debug panel
-  const renderDebugPanel = () => {
-    if (!debugMode) return null;
-    
-    return (
-      <div className="fixed bottom-0 left-0 right-0 bg-black/80 text-white p-2 text-xs font-mono z-50 max-h-40 overflow-auto">
-        <div className="flex justify-between mb-1">
-          <span className="font-bold">DEBUG MODE</span>
-          <button onClick={() => setDebugMode(false)} className="text-red-400">Close</button>
-        </div>
-        <div>Player ID: {currentPlayerId}</div>
-        <div>Player Name: {currentPlayer?.name}</div>
-        <div>Score: {currentPlayer?.score}</div>
-        <div>Stats: {JSON.stringify(currentPlayer?.stats)}</div>
-        <div>Room ID: {roomId}</div>
-        <div>Current Activation: {currentActivation?.substring(0, 8)}...</div>
-        <div>Has Answered: {hasAnswered ? 'Yes' : 'No'}</div>
-        <div>Is Correct: {isCorrect ? 'Yes' : 'No'}</div>
-        <div>Points Earned: {pointsEarned}</div>
-        <div>Answer Start Time: {answerStartTime ? new Date(answerStartTime).toISOString() : 'None'}</div>
-        <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
-        <div>Poll State: {pollState}</div>
-        <div>Poll Voted: {pollVoted ? 'Yes' : 'No'}</div>
-        <div>Selected Answer: {selectedAnswer}</div>
-      </div>
-    );
-  };
 
   return (
     <div 

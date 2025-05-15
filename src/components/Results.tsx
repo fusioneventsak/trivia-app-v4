@@ -488,8 +488,6 @@ export default function Results() {
     
     setPollVotes(votes);
     setTotalVotes(0);
-    
-    // Set initial poll state
     setPollState(activation.poll_state || 'pending');
     
     // Fetch existing votes from analytics

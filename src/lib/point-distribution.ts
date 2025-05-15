@@ -315,6 +315,8 @@ export async function getPollVotes(activationId: string): Promise<{[key: string]
       
       console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
       console.log('Vote counts:', votes);
+    } else {
+      console.log(`No votes found for activation ${activationId}`);
     }
     
     return votes;
