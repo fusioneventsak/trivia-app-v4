@@ -147,7 +147,7 @@ export default function Results() {
         // Get players for this room
         const { data: playerData, error: playerError } = await supabase
           .from('players')
-          .select('id, name, score, room_id, stats')
+          .select('id, name, score, stats, room_id')
           .eq('room_id', roomData.id)
           .order('score', { ascending: false });
           
@@ -161,11 +161,9 @@ export default function Results() {
         
         // Save previous rankings before updating
         const prevRanks: {[key: string]: number} = {};
-        if (Array.isArray(players)) {
-          players.forEach((player, index) => {
-            prevRanks[player.id] = index + 1;
-          });
-        }
+        players.forEach((player, index) => {
+          prevRanks[player.id] = index + 1;
+        });
         
         // Only update previous rankings if we have current rankings
         if (Object.keys(playerRankings).length > 0) {
@@ -336,7 +334,7 @@ export default function Results() {
   // Set up real-time subscriptions
   const setupRealtimeSubscriptions = (roomId: string) => {
     // Subscribe to game session changes
-    const gameSession = supabase.channel(`game_session_${roomId}`)
+    const gameSession = supabase.channel(`game_session_changes`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',

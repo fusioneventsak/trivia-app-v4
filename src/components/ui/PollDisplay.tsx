@@ -104,7 +104,8 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                     className="w-4 h-4 rounded"
                     style={{ backgroundColor: getColorForIndex(index) }}
                   />
-                  <div className="flex items-center gap-2 flex-1 text-white">
+                  <div className="flex items-center">
+                    {isSelected && <CheckCircle className="w-3 h-3 mr-1 text-green-400" />}
                     {option.media_type !== 'none' && option.media_url && (
                       <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
                         <img
@@ -117,10 +118,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                         />
                       </div>
                     )}
-                    <div className="flex items-center">
-                      {isSelected && <CheckCircle className="w-3 h-3 mr-1 text-green-400" />}
-                      <span>{option.text}</span>
-                    </div>
+                    <span>{option.text}</span>
                   </div>
                   <div className="text-sm text-white/80">{getDisplayLabel(voteCount, percentage)}</div>
                 </div>

@@ -15,8 +15,7 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
     console.log(`Setting up realtime subscriptions for room ${roomId}`);
     
     // Subscribe to game session changes
-    const gameChannel = supabase
-      .channel('room_changes')
+    const gameChannel = supabase.channel('game_session_changes')
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -66,7 +65,7 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
     channels.push(gameChannel);
 
     // Subscribe to player changes
-    const players = supabase.channel(`players_${roomId}`)
+    const playerChannel = supabase.channel(`players_${roomId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -79,7 +78,7 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
             .select('id, name, score, room_id, stats')
             .eq('room_id', roomId)
             .order('score', { ascending: false });
-            
+
           if (error) {
             console.error('Error fetching players:', error);
             callbacks.onError?.(error);
@@ -103,54 +102,31 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
         }
       });
 
-    channels.push(players);
+    channels.push(playerChannel);
 
-    // Subscribe to activation changes directly - critical for real-time updates
-    const activationsChannel = supabase
-      .channel('activation_changes')
+    // Subscribe to activation updates for poll state changes
+    const activationUpdatesChannel = supabase.channel(`activation_updates_${roomId}`)
       .on('postgres_changes', {
-        event: '*',
+        event: 'UPDATE',
         schema: 'public',
         table: 'activations',
-        filter: `room_id=eq.${roomId}`
+        filter: `room_id=eq.${roomId} AND is_template=eq.false`
       }, async (payload) => {
-        if (payload.eventType === 'INSERT' && !payload.new.is_template) {
-          console.log('New activation created:', payload.new);
-          
-          // Check if this is the current activation in the game session
-          const { data: session, error: sessionError } = await supabase
-            .from('game_sessions')
-            .select('current_activation')
-            .eq('room_id', roomId)
-            .maybeSingle();
+        // Check if this is the current activation in the game session
+        const { data: session } = await supabase
+          .from('game_sessions')
+          .select('current_activation')
+          .eq('room_id', roomId)
+          .maybeSingle();
             
-          if (!sessionError && session?.current_activation === payload.new.id) {
-            callbacks.onActivationChange?.(payload.new);
-          }
-        } else if (payload.eventType === 'UPDATE' && payload.old?.id === payload.new?.id) {
-          console.log('Activation updated:', payload.new);
-          
-          // Check if this is the current activation in the game session
-          const { data: session, error: sessionError } = await supabase
-            .from('game_sessions')
-            .select('current_activation')
-            .eq('room_id', roomId)
-            .maybeSingle();
-            
-          if (!sessionError && session?.current_activation === payload.new.id) {
-            callbacks.onActivationChange?.(payload.new);
-          }
+        if (session?.current_activation === payload.new.id) {
+          console.log('Current activation updated:', payload.new);
+          callbacks.onActivationChange?.(payload.new);
         }
       })
-      .subscribe((status, err) => {
-        console.log(`Activations subscription status: ${status}`);
-        if (err) {
-          console.error('Activations subscription error:', err);
-          callbacks.onError?.(err);
-        }
-      });
+      .subscribe();
 
-    channels.push(activationsChannel);
+    channels.push(activationUpdatesChannel);
 
     // Fetch initial state
     const fetchInitialState = async () => {
@@ -400,6 +376,27 @@ export async function getPollVotes(activationId: string): Promise<Record<string,
   try {
     console.log(`Fetching aggregated poll votes for activation ${activationId}`);
     
+    // Get the options for this activation to initialize vote structure
+    const { data: activation, error: actError } = await supabase
+      .from('activations')
+      .select('options')
+      .eq('id', activationId)
+      .single();
+      
+    if (actError) {
+      console.error('Error getting poll options:', actError);
+      return {};
+    }
+    
+    // Initialize votes with zeros for all options
+    const votes: Record<string, number> = {};
+    if (activation?.options) {
+      activation.options.forEach((option: any) => {
+        votes[option.text] = 0;
+      });
+    }
+    
+    // Get all votes for this activation
     const { data, error } = await supabase
       .from('analytics_events')
       .select('event_data')
@@ -408,21 +405,22 @@ export async function getPollVotes(activationId: string): Promise<Record<string,
       
     if (error) {
       console.error('Error fetching poll votes:', error);
-      return {};
+      return votes;  // Return initialized zeros
     }
     
     // Count votes
-    const votes: Record<string, number> = {};
-    
-    data?.forEach(event => {
-      const answer = event.event_data?.answer;
-      if (answer) {
-        votes[answer] = (votes[answer] || 0) + 1;
-      }
-    });
+    if (data && data.length > 0) {
+      data.forEach(event => {
+        const answer = event.event_data?.answer;
+        if (answer && votes[answer] !== undefined) {
+          votes[answer]++;
+        }
+      });
+    }
     
     console.log(`Retrieved ${data?.length || 0} votes for activation ${activationId}`);
     console.log('Vote counts:', votes);
+    
     return votes;
   } catch (error) {
     console.error('Error getting poll votes:', error);

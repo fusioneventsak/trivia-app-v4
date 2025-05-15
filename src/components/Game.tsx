@@ -612,7 +612,6 @@ export default function Game() {
           player_name: getCurrentPlayer()?.name,
           event_data: {
             player_id: currentPlayerId,
-            player_name: getCurrentPlayer()?.name,
             answer: answer,
             is_correct: isCorrectAnswer,
             points_awarded: 0,
@@ -719,7 +718,6 @@ export default function Game() {
           player_name: getCurrentPlayer()?.name,
           event_data: {
             player_id: currentPlayerId,
-            player_name: getCurrentPlayer()?.name,
             answer: textAnswer,
             is_correct: isCorrectAnswer,
             points_awarded: 0,
@@ -844,6 +842,7 @@ export default function Game() {
         theme.warning_color || '#F59E0B',
         theme.error_color || '#EF4444',
         '#06B6D4', // Cyan
+        '#8B5CF6', // Purple
         '#EC4899', // Pink
         '#F97316', // Orange
         '#14B8A6', // Teal
@@ -968,7 +967,7 @@ export default function Game() {
       >
         <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center">
           <h1 className="text-2xl font-bold text-gray-800 mb-4">Join a Room</h1>
-          <p className="text-gray-600 mb-6">You need to join a room to play.</p>
+          <p className="text-white/70 mb-6">You need to join a room to play.</p>
           <button
             onClick={() => navigate('/join')}
             className="px-6 py-3 text-white rounded-lg transition"
@@ -1081,7 +1080,7 @@ export default function Game() {
                       onClick={() => handleMultipleChoiceAnswer(option.text)}
                       disabled={hasAnswered}
                       className={`
-                        relative p-4 rounded-xl text-left transition 
+                        relative p-3 rounded-xl text-left transition 
                         ${hasAnswered
                           ? showCorrect
                             ? 'bg-green-400/30 ring-2 ring-green-400'
