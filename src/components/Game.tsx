@@ -182,7 +182,7 @@ export default function Game() {
     if (!roomId) return;
 
     const cleanup = subscribeToRoomUpdates(roomId, {
-      onActivationChange: (activation) => {
+      onActivationChange: async (activation) => {
         if (debugMode) {
           console.log("New activation received:", activation);
         }
@@ -201,17 +201,17 @@ export default function Game() {
 
         // Handle the poll activation
         if (activation?.type === 'poll') {
-          initPollVotes(activation);
+          await initPollVotes(activation);
           setPollState(activation.poll_state || 'pending');
           
-          // Clean up previous subscription if exists
+          // Clean up previous subscription
           if (pollSubscription) {
             pollSubscription();
           }
           
           // Set up new subscription
           const cleanup = subscribeToPollVotes(
-            activation.id,
+            activation.id, 
             (votes) => {
               console.log("Poll votes updated:", votes);
               setPollVotes(votes);
@@ -237,6 +237,24 @@ export default function Game() {
         // Set answer start time for point calculation
         if (activation && (activation.type === 'multiple_choice' || activation.type === 'text_answer')) {
           setAnswerStartTime(Date.now());
+        }
+
+        // Check if player has already voted for this poll
+        if (activation?.type === 'poll' && activation.id && currentPlayerId) {
+          try {
+            const hasVoted = await hasPlayerVoted(activation.id, currentPlayerId);
+            setPollVoted(hasVoted);
+            
+            if (hasVoted) {
+              // Get the actual vote they made
+              const playerVote = await getPlayerPollVote(activation.id, currentPlayerId);
+              if (playerVote) {
+                setSelectedAnswer(playerVote);
+              }
+            }
+          } catch (err) {
+            console.error("Error checking player's poll vote:", err);
+          }
         }
       },
       onPlayerChange: (players) => {
@@ -459,7 +477,8 @@ export default function Game() {
       if (data && data.length > 0) {
         // Count votes
         const votes: PollVotes = {};
-        activation.options?.forEach(option => {
+        const activation = activeQuestion;
+        activation?.options?.forEach(option => {
           votes[option.text] = 0;
         });
         
@@ -590,6 +609,7 @@ export default function Game() {
           room_id: roomId,
           activation_id: activeQuestion.id,
           user_id: null,
+          player_name: getCurrentPlayer()?.name,
           event_data: {
             player_id: currentPlayerId,
             player_name: getCurrentPlayer()?.name,
@@ -696,6 +716,7 @@ export default function Game() {
           room_id: roomId,
           activation_id: activeQuestion.id,
           user_id: null,
+          player_name: getCurrentPlayer()?.name,
           event_data: {
             player_id: currentPlayerId,
             player_name: getCurrentPlayer()?.name,

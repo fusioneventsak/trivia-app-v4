@@ -28,8 +28,8 @@ interface Player {
 
 interface Option {
   text: string;
-  media_type?: 'none' | 'image' | 'gif';
-  media_url?: string;
+  media_type: 'none' | 'image' | 'gif';
+  media_url: string;
 }
 
 interface Activation {
@@ -90,7 +90,7 @@ export default function Results() {
   const [debugMode, setDebugMode] = useState(false);
   const [activationRefreshCount, setActivationRefreshCount] = useState(0);
   
-  // Enable debug mode with key sequence
+  // Toggle debug mode with key sequence
   useEffect(() => {
     const keys: string[] = [];
     const debugCode = ['d', 'e', 'b', 'u', 'g'];
@@ -106,7 +106,9 @@ export default function Results() {
     };
     
     window.addEventListener('keydown', keyHandler);
-    return () => window.removeEventListener('keydown', keyHandler);
+    return () => {
+      window.removeEventListener('keydown', keyHandler);
+    };
   }, [debugMode]);
   
   // Add network status event listeners
@@ -152,7 +154,7 @@ export default function Results() {
         if (playerError) throw playerError;
         
         if (debugMode) {
-          console.log('Fetched players:', playerData);
+          console.log('Fetched players data:', playerData);
         }
         
         setPlayers(Array.isArray(playerData) ? playerData : []);
@@ -284,7 +286,7 @@ export default function Results() {
     
     // Reset timer state
     setTimeRemaining(null);
-    setShowAnswers(false); // Always hide answers initially when there's a timer
+    setShowAnswers(false); // Default to hiding answers
     
     // If no activation or no time limit, show answers and return
     if (!activation || !activation.time_limit) {
@@ -322,6 +324,7 @@ export default function Results() {
             }
             
             setShowAnswers(true); // Always show answers when timer expires
+            
             return 0;
           }
           return prev - 1;
@@ -342,19 +345,16 @@ export default function Results() {
       }, async (payload) => {
         console.log('Game session change detected:', payload);
         
-        // Remember the previous activation type
-        setPreviousActivationType(currentActivation?.type || null);
-        
-        // If current_activation changed
         if (payload.new && payload.old && payload.new.current_activation !== payload.old.current_activation) {
           if (payload.new?.current_activation) {
             // Refresh the activation data
             setActivationRefreshCount(count => count + 1);
           } else {
             // Clear current activation
+            setPreviousActivationType(currentActivation?.type || null);
             setCurrentActivation(null);
             
-            // Clear timer if active
+            // Clear any active timer
             if (timerIntervalRef.current) {
               clearInterval(timerIntervalRef.current);
               timerIntervalRef.current = null;
@@ -368,115 +368,67 @@ export default function Results() {
           }
         }
       })
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to game session changes for room ${roomId}`);
-        }
-        if (err) {
-          console.error(`Error subscribing to game session changes: ${err}`);
-        }
-      });
-      
+      .subscribe();
+
     // Subscribe to player changes
-    const players = supabase.channel(`players_${roomId}`)
+    const playerChannel = supabase.channel(`players_${roomId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'players',
         filter: `room_id=eq.${roomId}`
       }, async () => {
-        // Refresh player list
-        const { data, error } = await supabase
-          .from('players')
-          .select('id, name, score, room_id, stats')
-          .eq('room_id', roomId)
-          .order('score', { ascending: false });
-          
-        if (error) {
-          console.error('Error fetching players:', error);
-          return;
-        }
-        
-        // Ensure data is an array
-        const playerData = Array.isArray(data) ? data : [];
-        
-        // Save previous rankings before updating
-        const prevRanks: {[key: string]: number} = {};
-        // Check if players is an array before using forEach
-        if (Array.isArray(players)) {
-          players.forEach((player, index) => {
-            prevRanks[player.id] = index + 1;
-          });
-        }
-        
-        // Only update previous rankings if we have current rankings
-        if (Object.keys(playerRankings).length > 0) {
-          setPreviousRankings(playerRankings);
-        }
-        
-        // Update current rankings
-        const newRanks: {[key: string]: number} = {};
-        playerData.sort((a, b) => b.score - a.score)
-          .forEach((player, index) => {
-            newRanks[player.id] = index + 1;
-          });
-        setPlayerRankings(newRanks);
-        
-        setPlayers(playerData);
-      })
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to player changes for room ${roomId}`);
-        }
-        if (err) {
-          console.error(`Error subscribing to player changes: ${err}`);
-        }
-      });
-      
-    // Subscribe to activation updates (for timer starts and poll state changes)
-    const activations = supabase.channel(`activation_updates_${roomId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'activations',
-        filter: `room_id=eq.${roomId}`
-      }, (payload) => {
-        if (payload.new && payload.new.id === (currentActivation?.id)) {
-          // Check if timer was just started
-          if (
-            payload.new.timer_started_at && 
-            (!payload.old.timer_started_at || 
-             payload.new.timer_started_at !== payload.old.timer_started_at)
-          ) {
-            setupTimer(payload.new as Activation);
+        try {
+          const { data, error } = await supabase
+            .from('players')
+            .select('id, name, score, room_id, stats')
+            .eq('room_id', roomId)
+            .order('score', { ascending: false });
+            
+          if (error) {
+            console.error('Error fetching players:', error);
+            return;
           }
           
-          // Check if poll state changed
-          if (payload.new.poll_state !== payload.old.poll_state) {
-            setPollState(payload.new.poll_state || 'pending');
+          // Ensure data is an array
+          const playerData = Array.isArray(data) ? data : [];
+          
+          // Save previous rankings before updating
+          const prevRanks: {[key: string]: number} = {};
+          // Check if players is an array before using forEach
+          if (Array.isArray(players)) {
+            players.forEach((player, index) => {
+              prevRanks[player.id] = index + 1;
+            });
           }
           
-          // Update activation data
-          setCurrentActivation(payload.new as Activation);
+          // Only update previous rankings if we have current rankings
+          if (Object.keys(playerRankings).length > 0) {
+            setPreviousRankings(playerRankings);
+          }
+          
+          // Update current rankings
+          const newRanks: {[key: string]: number} = {};
+          playerData.sort((a, b) => b.score - a.score)
+            .forEach((player, index) => {
+              newRanks[player.id] = index + 1;
+            });
+          setPlayerRankings(newRanks);
+          
+          setPlayers(playerData);
+        } catch (error) {
+          console.error('Error in player changes handler:', error);
         }
       })
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to activation updates for room ${roomId}`);
-        }
-        if (err) {
-          console.error(`Error subscribing to activation updates: ${err}`);
-        }
-      });
-      
+      .subscribe();
+
     // Return cleanup function
     return () => {
       gameSession.unsubscribe();
-      players.unsubscribe();
-      activations.unsubscribe();
+      playerChannel.unsubscribe();
     };
   };
-  
+
   const initPollVotes = async (activation: Activation) => {
     if (!activation.options) return;
     
@@ -510,7 +462,8 @@ export default function Results() {
       if (data && data.length > 0) {
         // Count votes
         const votes: PollVotes = {};
-        activation.options?.forEach(option => {
+        const activation = currentActivation;
+        activation?.options?.forEach(option => {
           votes[option.text] = 0;
         });
         
@@ -626,7 +579,8 @@ export default function Results() {
       activationType: currentActivation?.type,
       showAnswers,
       pollState,
-      pollVotes
+      pollVotes,
+      totalVotes
     });
   }
 
@@ -743,6 +697,7 @@ export default function Results() {
                 
                 {renderMediaContent()}
                 
+                {/* Multiple Choice Question */}
                 {currentActivation.type === 'multiple_choice' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {currentActivation.options?.map((option, index) => {
@@ -784,6 +739,7 @@ export default function Results() {
                   </div>
                 )}
                 
+                {/* Text Answer Question */}
                 {currentActivation.type === 'text_answer' && (
                   <div className="bg-white/20 p-4 rounded-lg">
                     {showAnswers ? (
@@ -803,6 +759,7 @@ export default function Results() {
                   </div>
                 )}
                 
+                {/* Poll Question */}
                 {currentActivation.type === 'poll' && (
                   <>
                     {/* Poll State Indicator */}
@@ -864,31 +821,33 @@ export default function Results() {
             <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
             <div>Show Answers: {showAnswers ? 'true' : 'false'}</div>
             
-            <div className="mt-2 font-bold">Actions:</div>
-            <button 
-              onClick={() => window.location.reload()}
-              className="mr-2 px-2 py-1 bg-green-800 text-green-200 rounded"
-            >
-              Refresh Page
-            </button>
-            <button
-              onClick={() => {
-                console.log('Current players:', players);
-                console.log('Current activation:', currentActivation);
-                console.log('Current rankings:', playerRankings);
-                console.log('Poll votes:', pollVotes);
-                console.log('Total votes:', totalVotes);
-              }}
-              className="px-2 py-1 bg-blue-800 text-blue-200 rounded"
-            >
-              Log State
-            </button>
-            <button
-              onClick={() => setActivationRefreshCount(c => c + 1)}
-              className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
-            >
-              Refresh Activation
-            </button>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-2 py-1 bg-green-800 text-green-200 rounded"
+              >
+                Refresh Page
+              </button>
+              
+              <button
+                onClick={() => {
+                  console.log('Current players:', players);
+                  console.log('Current activation:', currentActivation);
+                  console.log('Current rankings:', playerRankings);
+                  console.log('Poll votes:', pollVotes);
+                  console.log('Total votes:', totalVotes);
+                }}
+                className="px-2 py-1 bg-blue-800 text-blue-200 rounded"
+              >
+                Log State
+              </button>
+              <button
+                onClick={() => setActivationRefreshCount(c => c + 1)}
+                className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
+              >
+                Refresh Activation
+              </button>
+            </div>
           </div>
         )}
       </div>
