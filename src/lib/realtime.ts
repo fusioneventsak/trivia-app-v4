@@ -244,6 +244,28 @@ export function subscribeToPollVotes(
   const fetchInitialVotes = async () => {
     try {
       console.log(`Fetching initial poll votes from database for ${activationId}`);
+      
+      // First get the activation to get the options
+      const { data: activation, error: actError } = await supabase
+        .from('activations')
+        .select('options')
+        .eq('id', activationId)
+        .single();
+      
+      if (actError) {
+        console.error('Error fetching activation options:', actError);
+        return;
+      }
+      
+      // Initialize votes object with zeros for all options
+      const votes: Record<string, number> = {};
+      if (activation?.options) {
+        activation.options.forEach((option: any) => {
+          votes[option.text] = 0;
+        });
+      }
+      
+      // Get all votes for this specific activation
       const { data, error } = await supabase
         .from('analytics_events')
         .select('event_data')
@@ -255,21 +277,23 @@ export function subscribeToPollVotes(
         return;
       }
       
+      // Count votes for this activation only
       if (data && data.length > 0) {
-        // Count votes
-        const votes: Record<string, number> = {};
-        
         data.forEach(event => {
           const answer = event.event_data?.answer;
-          if (answer) {
-            votes[answer] = (votes[answer] || 0) + 1;
+          if (answer && votes[answer] !== undefined) {
+            votes[answer]++;
           }
         });
         
         console.log(`Initial poll votes loaded for ${activationId}:`, votes);
         console.log(`Total votes found: ${data.length}`);
-        onVotesUpdate(votes);
+      } else {
+        console.log(`No votes found for activation ${activationId}, using zeros`);
       }
+      
+      // Update with current vote counts
+      onVotesUpdate(votes);
     } catch (err) {
       console.error('Error fetching initial poll votes:', err);
     }
