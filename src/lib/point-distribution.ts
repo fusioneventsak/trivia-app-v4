@@ -52,7 +52,6 @@ export async function distributePoints({
         player_name: playerName,
         event_data: {
           player_id: playerId,
-          player_name: playerName,
           answer: answer,
           is_correct: isCorrect,
           points_awarded: 0,
@@ -194,7 +193,6 @@ async function logAnswerEvent({
       player_name: playerName,
       event_data: {
         player_id: playerId,
-        player_name: playerName,
         answer: answer,
         is_correct: isCorrect,
         points_awarded: pointsAwarded,
