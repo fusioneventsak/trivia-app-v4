@@ -26,6 +26,7 @@ export default function PlayerEntry() {
   const [totalPlayers, setTotalPlayers] = useState<number>(0);
   const [playerStats, setPlayerStats] = useState<any>(null);
   const [refreshingStats, setRefreshingStats] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   
   // Check for existing player data in localStorage
   useEffect(() => {
@@ -82,6 +83,35 @@ export default function PlayerEntry() {
       };
     }
     
+    // Check if room code and message were passed from Game component redirect
+    const stateParams = location.state as { roomId?: string, message?: string } | null;
+    if (stateParams?.roomId) {
+      // Look up the room code from the room ID
+      const fetchRoomCode = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('rooms')
+            .select('room_code')
+            .eq('id', stateParams.roomId)
+            .single();
+          
+          if (!error && data?.room_code) {
+            setRoomCode(data.room_code);
+            validateRoomCode(data.room_code);
+          }
+        } catch (err) {
+          console.error('Error fetching room code:', err);
+        }
+      };
+      
+      fetchRoomCode();
+    }
+    
+    // Display message if provided (e.g. from redirect)
+    if (stateParams?.message) {
+      setMessage(stateParams.message);
+    }
+
     // Check if room code was passed in the URL
     const searchParams = new URLSearchParams(location.search);
     const codeFromUrl = searchParams.get('code');
@@ -337,6 +367,13 @@ export default function PlayerEntry() {
         >
           {room?.settings?.join_page_message || 'Enter your name and room code to join'}
         </p>
+
+        {/* Display message if passed from redirect */}
+        {message && (
+          <div className="mb-6 p-4 bg-amber-100 text-amber-700 rounded-lg">
+            {message}
+          </div>
+        )}
 
         {/* Player Stats (if returning player) */}
         {savedPlayerId && playerScore > 0 && (

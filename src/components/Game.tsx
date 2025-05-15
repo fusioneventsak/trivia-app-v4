@@ -70,6 +70,7 @@ interface PlayerType {
 
 export default function Game() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { roomId } = useParams();
   const { isLiveMode, currentActivation, currentPlayerId, setCurrentPlayerId, getCurrentPlayer } = useGameStore();
   const currentPlayer = getCurrentPlayer();
@@ -139,6 +140,20 @@ export default function Game() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Check if player exists - if not, redirect to join page
+  useEffect(() => {
+    if (!currentPlayerId || !getCurrentPlayer()) {
+      // Player doesn't exist, redirect back to join page
+      console.log("No player found, redirecting to join page");
+      navigate('/join', { 
+        state: { 
+          roomId: roomId,
+          message: "Please enter your name to rejoin the game."
+        }
+      });
+    }
+  }, [currentPlayerId, getCurrentPlayer, navigate, roomId]);
 
   // Fetch room data when roomId changes
   useEffect(() => {
@@ -273,6 +288,7 @@ export default function Game() {
       // Clear any active timer
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
     };
   }, [roomId, currentPlayerId, debugMode]);
@@ -363,7 +379,7 @@ export default function Game() {
       timerIntervalRef.current = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev === null || prev <= 1) {
-            // Time's up - clear interval and check if we should show answers
+            // Time's up - clear interval and always show answers
             if (timerIntervalRef.current) {
               clearInterval(timerIntervalRef.current);
               timerIntervalRef.current = null;
@@ -409,7 +425,7 @@ export default function Game() {
       }
     };
   }, []);
-  
+
   const initPollVotes = async (activation: Activation) => {
     if (!activation.options) return;
 
@@ -894,6 +910,9 @@ export default function Game() {
     );
   };
 
+  // Get active theme from room or default
+  const activeTheme = room?.theme || theme;
+
   if (networkError) {
     return (
       <div 
@@ -940,9 +959,6 @@ export default function Game() {
       </div>
     );
   }
-
-  // Get active theme from room or default
-  const activeTheme = room?.theme || theme;
 
   return (
     <div 
