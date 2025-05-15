@@ -94,6 +94,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
             {options.map((option, index) => {
               const voteCount = votes[option.text] || 0;
               const percentage = totalVotes > 0 ? (voteCount / totalVotes * 100).toFixed(1) : '0.0';
+              const isSelected = option.text === selectedAnswer;
               
               return (
                 <div key={index} className="flex items-center gap-2">
@@ -114,7 +115,10 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                         />
                       </div>
                     )}
-                    <span>{option.text}</span>
+                    <div className="flex items-center">
+                      {isSelected && <CheckCircle className="w-3 h-3 mr-1 text-green-400" />}
+                      <span>{option.text}</span>
+                    </div>
                   </div>
                   <div className="text-sm text-white/80">{getDisplayLabel(voteCount, percentage)}</div>
                 </div>
@@ -185,7 +189,10 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                       />
                     </div>
                   )}
-                  <span className="truncate" title={option.text}>{option.text}</span>
+                  <div className="flex items-center justify-center">
+                    {isSelected && <CheckCircle className="w-3 h-3 mr-1 text-green-400" />}
+                    <span className="truncate" title={option.text}>{option.text}</span>
+                  </div>
                 </div>
               </div>
             );
@@ -213,10 +220,10 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
             <div key={index} className="space-y-1">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-white">
-                  {isSelected && <CheckCircle className="w-4 h-4" />}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center">
+                    {isSelected && <CheckCircle className="w-4 h-4 mr-1 text-green-400" />}
                     {option.media_type !== 'none' && option.media_url && (
-                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
+                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-2">
                         <img
                           src={option.media_url}
                           alt={option.text}
@@ -241,10 +248,11 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                   className="h-full transition-all duration-500 ease-out flex items-center px-2"
                   style={{ 
                     width: `${Math.max(percentage, 4)}%`,
-                    backgroundColor: getColorForIndex(index)
+                    backgroundColor: getColorForIndex(index),
+                    border: isSelected ? '2px solid white' : 'none'
                   }}
                 >
-                  {percentage >= 10 && (
+                  {percentage >= 15 && (
                     <span className="text-xs text-white font-medium truncate">
                       {option.text}
                     </span>

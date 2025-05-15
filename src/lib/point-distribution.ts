@@ -462,3 +462,30 @@ export async function distributePointsOnTimerExpiry(
     };
   }
 }
+
+/**
+ * Gets player's previous poll vote if it exists
+ */
+export async function getPlayerPollVote(
+  activationId: string,
+  playerId: string
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('analytics_events')
+      .select('event_data')
+      .eq('event_type', 'poll_vote')
+      .eq('activation_id', activationId)
+      .filter('event_data->player_id', 'eq', playerId)
+      .maybeSingle();
+      
+    if (error || !data) {
+      return null;
+    }
+    
+    return data.event_data.answer || null;
+  } catch (error) {
+    console.error('Error getting player poll vote:', error);
+    return null;
+  }
+}

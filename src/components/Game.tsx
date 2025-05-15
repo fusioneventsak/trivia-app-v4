@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
 import { Trophy, Settings, CheckCircle, XCircle, Users, Send, Clock, PlayCircle, X, Lock, WifiOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { subscribeToRoomUpdates } from '../lib/realtime';
+import { subscribeToRoomUpdates, subscribeToPollVotes, getPollVotes } from '../lib/realtime';
 import confetti from 'canvas-confetti';
 import { useTheme } from '../context/ThemeContext';
 import CountdownTimer from './ui/CountdownTimer';
@@ -11,7 +11,7 @@ import PointAnimation from './ui/PointAnimation';
 import PointsDisplay from './ui/PointsDisplay';
 import { calculatePoints, POINT_CONFIG } from '../lib/point-calculator';
 import LeaderboardItem from './ui/LeaderboardItem';
-import { distributePoints, hasPlayerAnswered, hasPlayerVoted } from '../lib/point-distribution';
+import { distributePoints, hasPlayerAnswered, hasPlayerVoted, getPlayerPollVote } from '../lib/point-distribution';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 
@@ -85,7 +85,7 @@ export default function Game() {
   const [pollVotes, setPollVotes] = useState<PollVotes>({});
   const [totalVotes, setTotalVotes] = useState(0);
   const [pollVoted, setPollVoted] = useState(false);
-  const [pollVoteChannel, setPollVoteChannel] = useState<any>(null);
+  const [pollSubscription, setPollSubscription] = useState<(() => void) | null>(null);
   const [pollState, setPollState] = useState<PollState>('pending');
   const [activationHistory, setActivationHistory] = useState<Activation[]>([]);
   const [room, setRoom] = useState<any>(null);
@@ -184,13 +184,36 @@ export default function Game() {
         setAnswerStartTime(null);
         setHasCheckedAnswer(false);
 
+        // Handle the poll activation
         if (activation?.type === 'poll') {
           initPollVotes(activation);
-          setupPollChannel(activation.id);
           setPollState(activation.poll_state || 'pending');
-        } else if (pollVoteChannel) {
-          pollVoteChannel.unsubscribe();
-          setPollVoteChannel(null);
+          
+          // Clean up previous subscription if exists
+          if (pollSubscription) {
+            pollSubscription();
+          }
+          
+          // Set up new subscription
+          const cleanup = subscribeToPollVotes(
+            activation.id,
+            (votes) => {
+              console.log("Poll votes updated:", votes);
+              setPollVotes(votes);
+              setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+            },
+            (state) => {
+              console.log("Poll state changed:", state);
+              setPollState(state || 'pending');
+            }
+          );
+          setPollSubscription(() => cleanup);
+        } else {
+          // Clean up poll subscription if not a poll
+          if (pollSubscription) {
+            pollSubscription();
+            setPollSubscription(null);
+          }
         }
         
         // Setup timer if needed
@@ -242,8 +265,9 @@ export default function Game() {
 
     return () => {
       cleanup?.();
-      if (pollVoteChannel) {
-        pollVoteChannel.unsubscribe();
+      if (pollSubscription) {
+        pollSubscription();
+        setPollSubscription(null);
       }
       
       // Clear any active timer
@@ -427,7 +451,7 @@ export default function Game() {
       }, 1000);
     }
   };
-
+  
   // Cleanup timer on unmount
   useEffect(() => {
     return () => {
@@ -504,28 +528,6 @@ export default function Game() {
     } catch (err) {
       console.error('Error fetching poll votes:', err);
     }
-  };
-
-  const setupPollChannel = (activationId: string) => {
-    if (pollVoteChannel) {
-      pollVoteChannel.unsubscribe();
-    }
-
-    const channel = supabase.channel(`poll-${activationId}`)
-      .on('broadcast', { event: 'poll-vote' }, (payload) => {
-        if (payload.payload?.votes) {
-          setPollVotes(payload.payload.votes);
-          setTotalVotes(Object.values(payload.payload.votes).reduce((sum: number, count: number) => sum + count, 0));
-        }
-      })
-      .on('broadcast', { event: 'poll-state-change' }, (payload) => {
-        if (payload.payload?.state) {
-          setPollState(payload.payload.state);
-        }
-      })
-      .subscribe();
-
-    setPollVoteChannel(channel);
   };
 
   const handleMultipleChoiceAnswer = async (answer: string) => {
@@ -976,6 +978,10 @@ export default function Game() {
         <div>Is Correct: {isCorrect ? 'Yes' : 'No'}</div>
         <div>Points Earned: {pointsEarned}</div>
         <div>Answer Start Time: {answerStartTime ? new Date(answerStartTime).toISOString() : 'None'}</div>
+        <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
+        <div>Poll State: {pollState}</div>
+        <div>Poll Voted: {pollVoted ? 'Yes' : 'No'}</div>
+        <div>Selected Answer: {selectedAnswer}</div>
       </div>
     );
   };
@@ -1170,9 +1176,9 @@ export default function Game() {
             {/* Poll Question */}
             {activeQuestion.type === 'poll' && (
               <div className="mt-4">
-                <div className="grid grid-cols-1 gap-3">
-                  {!pollVoted && pollState === 'voting' ? (
-                    activeQuestion.options?.map((option, index) => (
+                {!pollVoted && pollState === 'voting' ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {activeQuestion.options?.map((option, index) => (
                       <button
                         key={index}
                         onClick={() => handlePollVote(option.text)}
@@ -1197,42 +1203,42 @@ export default function Game() {
                           <div className="flex-1 font-medium">{option.text}</div>
                         </div>
                       </button>
-                    ))
-                  ) : (
-                    <div className={pollState === 'pending' ? "p-4 bg-yellow-100/20 rounded-lg text-center" : ""}>
-                      {pollState === 'pending' ? (
-                        <div className="flex flex-col items-center gap-3">
-                          <Clock className="w-8 h-8 text-yellow-300" />
-                          <p className="text-lg font-medium">Waiting for voting to begin</p>
-                          <p className="text-sm opacity-80">The host will start the voting soon</p>
-                        </div>
-                      ) : (
-                        <PollDisplay 
-                          options={activeQuestion.options || []}
-                          votes={pollVotes}
-                          totalVotes={totalVotes}
-                          displayType={activeQuestion.poll_display_type || 'bar'}
-                          resultFormat={activeQuestion.poll_result_format || 'both'}
-                          selectedAnswer={selectedAnswer}
-                          themeColors={{
-                            primary_color: activeTheme.primary_color,
-                            secondary_color: activeTheme.secondary_color
-                          }}
-                        />
-                      )}
-                    </div>
-                  )}
-                  
-                  {pollState === 'pending' && (
-                    <div className="mt-3 bg-white/10 p-3 rounded-lg text-center text-sm">
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <Lock className="w-4 h-4" />
-                        <span>Voting is not active yet</span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={pollState === 'pending' ? "p-4 bg-yellow-100/20 rounded-lg text-center" : ""}>
+                    {pollState === 'pending' ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <Clock className="w-8 h-8 text-yellow-300" />
+                        <p className="text-lg font-medium">Waiting for voting to begin</p>
+                        <p className="text-sm opacity-80">The host will start the voting soon</p>
                       </div>
-                      <p>Please wait for the host to start the voting.</p>
+                    ) : (
+                      <PollDisplay 
+                        options={activeQuestion.options || []}
+                        votes={pollVotes}
+                        totalVotes={totalVotes}
+                        displayType={activeQuestion.poll_display_type || 'bar'}
+                        resultFormat={activeQuestion.poll_result_format || 'both'}
+                        selectedAnswer={selectedAnswer}
+                        themeColors={{
+                          primary_color: activeTheme.primary_color,
+                          secondary_color: activeTheme.secondary_color
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+                
+                {pollState === 'pending' && (
+                  <div className="mt-3 bg-white/10 p-3 rounded-lg text-center text-sm">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <Lock className="w-4 h-4" />
+                      <span>Voting is not active yet</span>
                     </div>
-                  )}
-                </div>
+                    <p>Please wait for the host to start the voting.</p>
+                  </div>
+                )}
               </div>
             )}
             

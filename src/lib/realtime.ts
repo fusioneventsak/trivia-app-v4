@@ -252,35 +252,166 @@ export function subscribeToRoomUpdates(roomId: string, callbacks: RoomCallbacks)
   }
 }
 
-export function subscribeToPollVotes(activationId: string, onVote: (votes: any) => void) {
-  const channel = supabase.channel(`poll_${activationId}`)
-    .on('broadcast', { event: 'poll-vote' }, (payload) => {
-      if (payload.payload?.votes) {
-        onVote(payload.payload.votes);
+export function subscribeToPollVotes(
+  activationId: string, 
+  onVotesUpdate: (votes: Record<string, number>) => void,
+  onPollStateChange?: (state: string) => void
+) {
+  console.log(`Setting up poll vote subscription for activation ${activationId}`);
+  
+  // Initial votes fetch from database
+  const fetchInitialVotes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('analytics_events')
+        .select('event_data')
+        .eq('event_type', 'poll_vote')
+        .eq('activation_id', activationId);
+        
+      if (error) {
+        console.error('Error fetching initial poll votes:', error);
+        return;
       }
-    })
-    .on('broadcast', { event: 'poll-state-change' }, (payload) => {
-      // Handle poll state changes (voting/closed)
-      console.log('Poll state changed:', payload);
-    })
-    .subscribe();
-
-  // Also subscribe to analytics events for this poll to get initial votes
-  const analyticsChannel = supabase.channel(`poll_analytics_${activationId}`)
+      
+      if (data && data.length > 0) {
+        // Count votes
+        const votes: Record<string, number> = {};
+        
+        data.forEach(event => {
+          const answer = event.event_data?.answer;
+          if (answer) {
+            votes[answer] = (votes[answer] || 0) + 1;
+          }
+        });
+        
+        console.log(`Initial poll votes loaded for ${activationId}:`, votes);
+        onVotesUpdate(votes);
+      }
+    } catch (err) {
+      console.error('Error fetching initial poll votes:', err);
+    }
+  };
+  
+  // Fetch current poll state
+  const fetchPollState = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('activations')
+        .select('poll_state')
+        .eq('id', activationId)
+        .single();
+        
+      if (error) {
+        console.error('Error fetching poll state:', error);
+        return;
+      }
+      
+      if (data && onPollStateChange) {
+        onPollStateChange(data.poll_state || 'pending');
+      }
+    } catch (err) {
+      console.error('Error fetching poll state:', err);
+    }
+  };
+  
+  // Run initial fetches
+  fetchInitialVotes();
+  fetchPollState();
+  
+  // Set up realtime subscription for new votes
+  const pollChannel = supabase.channel(`poll_votes_${activationId}`)
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
       table: 'analytics_events',
-      filter: `activation_id=eq.${activationId}`
-    }, (payload) => {
-      if (payload.new.event_type === 'poll_vote') {
-        console.log('New poll vote recorded:', payload.new);
+      filter: `event_type=eq.poll_vote AND activation_id=eq.${activationId}`
+    }, payload => {
+      console.log('New poll vote detected:', payload);
+      fetchInitialVotes(); // Refetch all votes to ensure consistency
+    })
+    .subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`Subscribed to poll votes for activation ${activationId}`);
+      }
+      if (err) {
+        console.error(`Error subscribing to poll votes: ${err}`);
+      }
+    });
+  
+  // Subscribe to poll state changes
+  const stateChannel = supabase.channel(`poll_state_${activationId}`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'activations',
+      filter: `id=eq.${activationId}`
+    }, payload => {
+      if (payload.new && payload.old && 
+          payload.new.poll_state !== payload.old.poll_state && 
+          onPollStateChange) {
+        console.log(`Poll state changed to: ${payload.new.poll_state}`);
+        onPollStateChange(payload.new.poll_state);
       }
     })
     .subscribe();
-
+  
+  // Also subscribe to broadcast channel for immediate updates
+  const broadcastChannel = supabase.channel(`poll_broadcast_${activationId}`)
+    .on('broadcast', { event: 'poll-vote' }, payload => {
+      if (payload.payload?.votes) {
+        console.log(`Received broadcast poll votes:`, payload.payload.votes);
+        onVotesUpdate(payload.payload.votes);
+      }
+    })
+    .on('broadcast', { event: 'poll-state-change' }, payload => {
+      if (payload.payload?.state && onPollStateChange) {
+        console.log(`Received broadcast poll state change:`, payload.payload.state);
+        onPollStateChange(payload.payload.state);
+      }
+    })
+    .subscribe();
+  
+  // Return a cleanup function
   return () => {
-    channel.unsubscribe();
-    analyticsChannel.unsubscribe();
+    console.log(`Cleaning up poll subscriptions for ${activationId}`);
+    pollChannel.unsubscribe();
+    stateChannel.unsubscribe();
+    broadcastChannel.unsubscribe();
   };
+}
+
+/**
+ * Get aggregated poll votes for an activation
+ */
+export async function getPollVotes(activationId: string): Promise<Record<string, number>> {
+  try {
+    console.log(`Fetching aggregated poll votes for activation ${activationId}`);
+    
+    const { data, error } = await supabase
+      .from('analytics_events')
+      .select('event_data')
+      .eq('event_type', 'poll_vote')
+      .eq('activation_id', activationId);
+      
+    if (error) {
+      console.error('Error fetching poll votes:', error);
+      return {};
+    }
+    
+    // Count votes
+    const votes: Record<string, number> = {};
+    
+    data?.forEach(event => {
+      const answer = event.event_data?.answer;
+      if (answer) {
+        votes[answer] = (votes[answer] || 0) + 1;
+      }
+    });
+    
+    console.log(`Retrieved ${data?.length || 0} votes for activation ${activationId}`);
+    return votes;
+  } catch (error) {
+    console.error('Error getting poll votes:', error);
+    return {};
+  }
 }

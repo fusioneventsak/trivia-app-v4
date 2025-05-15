@@ -11,7 +11,8 @@ import confetti from 'canvas-confetti';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
-import { hasPlayerVoted } from '../lib/point-distribution';
+import { hasPlayerVoted, getPollVotes } from '../lib/point-distribution';
+import { subscribeToPollVotes } from '../lib/realtime';
 
 interface Player {
   id: string;
@@ -82,11 +83,12 @@ export default function Results() {
   const [showAnswers, setShowAnswers] = useState(false);
   const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const pollChannelRef = useRef<any>(null);
+  const pollSubscriptionRef = useRef<(() => void) | null>(null);
   const [playerRankings, setPlayerRankings] = useState<{[key: string]: number}>({});
   const [previousRankings, setPreviousRankings] = useState<{[key: string]: number}>({});
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
+  const [activationRefreshCount, setActivationRefreshCount] = useState(0);
   
   // Enable debug mode with key sequence
   useEffect(() => {
@@ -202,11 +204,30 @@ export default function Results() {
           
           setCurrentActivation(activation);
           
-          // If it's a poll, get initial votes
+          // If it's a poll, get initial votes and set up subscription
           if (activation.type === 'poll' && activation.options) {
-            initPollVotes(activation);
-            setupPollChannel(activation.id);
+            await initPollVotes(activation);
             setPollState(activation.poll_state || 'pending');
+            
+            // Clean up previous subscription
+            if (pollSubscriptionRef.current) {
+              pollSubscriptionRef.current();
+            }
+            
+            // Set up new subscription
+            const cleanup = subscribeToPollVotes(
+              activation.id, 
+              (votes) => {
+                console.log("Results page poll votes updated:", votes);
+                setPollVotes(votes);
+                setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+              },
+              (state) => {
+                console.log("Results page poll state changed:", state);
+                setPollState(state);
+              }
+            );
+            pollSubscriptionRef.current = cleanup;
           }
           
           // Setup timer if needed
@@ -216,7 +237,14 @@ export default function Results() {
             setShowAnswers(activation.show_answers !== false);
           }
         } else {
+          setPreviousActivationType(currentActivation?.type || null);
           setCurrentActivation(null);
+          
+          // Clean up poll subscription if it exists
+          if (pollSubscriptionRef.current) {
+            pollSubscriptionRef.current();
+            pollSubscriptionRef.current = null;
+          }
         }
         
         setLoading(false);
@@ -232,7 +260,19 @@ export default function Results() {
     };
     
     fetchRoom();
-  }, [code, debugMode]);
+    
+    // Clean up function
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      if (pollSubscriptionRef.current) {
+        pollSubscriptionRef.current();
+        pollSubscriptionRef.current = null;
+      }
+    };
+  }, [code, debugMode, activationRefreshCount]);
   
   // Setup timer when activation changes or timer starts
   const setupTimer = (activation: Activation) => {
@@ -290,18 +330,7 @@ export default function Results() {
     }
   };
   
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-      if (pollChannelRef.current) {
-        pollChannelRef.current.unsubscribe();
-      }
-    };
-  }, []);
-  
+  // Set up real-time subscriptions
   const setupRealtimeSubscriptions = (roomId: string) => {
     // Subscribe to game session changes
     const gameSession = supabase.channel(`game_session_${roomId}`)
@@ -319,33 +348,8 @@ export default function Results() {
         // If current_activation changed
         if (payload.new && payload.old && payload.new.current_activation !== payload.old.current_activation) {
           if (payload.new?.current_activation) {
-            // Fetch the new activation
-            const { data: activation, error } = await supabase
-              .from('activations')
-              .select('*')
-              .eq('id', payload.new.current_activation)
-              .single();
-              
-            if (error) {
-              console.error('Error fetching activation:', error);
-              return;
-            }
-            
-            setCurrentActivation(activation);
-            
-            // If it's a poll, initialize votes and set poll state
-            if (activation.type === 'poll' && activation.options) {
-              initPollVotes(activation);
-              setupPollChannel(activation.id);
-              setPollState(activation.poll_state || 'pending');
-            }
-            
-            // Setup timer if needed
-            if (activation.time_limit && activation.timer_started_at) {
-              setupTimer(activation);
-            } else {
-              setShowAnswers(activation.show_answers !== false);
-            }
+            // Refresh the activation data
+            setActivationRefreshCount(count => count + 1);
           } else {
             // Clear current activation
             setCurrentActivation(null);
@@ -357,9 +361,9 @@ export default function Results() {
             }
             
             // Unsubscribe from poll channel if active
-            if (pollChannelRef.current) {
-              pollChannelRef.current.unsubscribe();
-              pollChannelRef.current = null;
+            if (pollSubscriptionRef.current) {
+              pollSubscriptionRef.current();
+              pollSubscriptionRef.current = null;
             }
           }
         }
@@ -473,7 +477,7 @@ export default function Results() {
     };
   };
   
-  const initPollVotes = (activation: Activation) => {
+  const initPollVotes = async (activation: Activation) => {
     if (!activation.options) return;
     
     // Initialize votes object with zeros for all options
@@ -489,7 +493,9 @@ export default function Results() {
     setPollState(activation.poll_state || 'pending');
     
     // Fetch existing votes from analytics
-    fetchPollVotes(activation.id);
+    const allVotes = await getPollVotes(activation.id);
+    setPollVotes(allVotes);
+    setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
   };
   
   const fetchPollVotes = async (activationId: string) => {
@@ -505,85 +511,30 @@ export default function Results() {
       
       if (data && data.length > 0) {
         // Count votes
-        const votes: PollVotes = { ...pollVotes };
+        const votes: PollVotes = {};
+        activation.options?.forEach(option => {
+          votes[option.text] = 0;
+        });
         
         data.forEach(event => {
           const answer = event.event_data?.answer;
           if (answer && votes[answer] !== undefined) {
-            votes[answer] += 1;
+            votes[answer]++;
           }
         });
         
-        // Update state
         setPollVotes(votes);
-        setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+        setTotalVotes(data.length);
+        
+        if (debugMode) {
+          console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
+          console.log('Vote counts:', votes);
+        }
       }
     } catch (err) {
       console.error('Error fetching poll votes:', err);
     }
   };
-  
-  const setupPollChannel = (activationId: string) => {
-    // Clean up existing channel if any
-    if (pollChannelRef.current) {
-      pollChannelRef.current.unsubscribe();
-    }
-    
-    // Create new channel
-    const channel = supabase.channel(`poll-${activationId}`)
-      .on('broadcast', { event: 'poll-vote' }, (payload) => {
-        if (payload.payload?.votes) {
-          setPollVotes(payload.payload.votes);
-          setTotalVotes(Object.values(payload.payload.votes).reduce((sum: number, count: number) => sum + count, 0));
-        }
-      })
-      .on('broadcast', { event: 'poll-state-change' }, (payload) => {
-        if (payload.payload?.state) {
-          setPollState(payload.payload.state);
-        }
-      })
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to poll channel: poll-${activationId}`);
-        }
-        if (err) {
-          console.error(`Error subscribing to poll channel: ${err}`);
-        }
-      });
-      
-    // Store channel reference for cleanup
-    pollChannelRef.current = channel;
-  };
-  
-  // Add effect for confetti when leaderboard is activated
-  useEffect(() => {
-    // Check if the activation type has changed to leaderboard
-    if (currentActivation?.type === 'leaderboard' && previousActivationType !== 'leaderboard') {
-      // Fire confetti when leaderboard is activated
-      confetti({
-        particleCount: 150,
-        spread: 70,
-        origin: { y: 0.3 }
-      });
-
-      // Add a secondary delayed burst for more excitement
-      setTimeout(() => {
-        confetti({
-          particleCount: 100,
-          angle: 60,
-          spread: 55,
-          origin: { x: 0.1, y: 0.5 }
-        });
-        
-        confetti({
-          particleCount: 100,
-          angle: 120,
-          spread: 55,
-          origin: { x: 0.9, y: 0.5 }
-        });
-      }, 500);
-    }
-  }, [currentActivation, previousActivationType]);
 
   const renderMediaContent = () => {
     if (!currentActivation?.media_url || currentActivation.media_type === 'none') return null;
@@ -628,6 +579,36 @@ export default function Results() {
   // Get active theme from room or default
   const activeTheme = room?.theme || globalTheme;
 
+  // Add effect for confetti when leaderboard is activated
+  useEffect(() => {
+    // Check if the activation type has changed to leaderboard
+    if (currentActivation?.type === 'leaderboard' && previousActivationType !== 'leaderboard') {
+      // Fire confetti when leaderboard is activated
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.3 }
+      });
+
+      // Add a secondary delayed burst for more excitement
+      setTimeout(() => {
+        confetti({
+          particleCount: 100,
+          angle: 60,
+          spread: 55,
+          origin: { x: 0.1, y: 0.5 }
+        });
+        
+        confetti({
+          particleCount: 100,
+          angle: 120,
+          spread: 55,
+          origin: { x: 0.9, y: 0.5 }
+        });
+      }, 500);
+    }
+  }, [currentActivation, previousActivationType]);
+
   // Generate QR code URL for this room
   const getJoinUrl = () => {
     try {
@@ -646,7 +627,8 @@ export default function Results() {
       currentActivation: currentActivation?.id,
       activationType: currentActivation?.type,
       showAnswers,
-      pollState
+      pollState,
+      pollVotes
     });
   }
 
@@ -824,17 +806,24 @@ export default function Results() {
                 )}
                 
                 {currentActivation.type === 'poll' && (
-                  <PollDisplay 
-                    options={currentActivation.options || []}
-                    votes={pollVotes}
-                    totalVotes={totalVotes}
-                    displayType={currentActivation.poll_display_type || 'bar'}
-                    resultFormat={currentActivation.poll_result_format || 'both'}
-                    themeColors={{
-                      primary_color: currentActivation.theme?.primary_color || room.theme?.primary_color || globalTheme.primary_color,
-                      secondary_color: currentActivation.theme?.secondary_color || room.theme?.secondary_color || globalTheme.secondary_color
-                    }}
-                  />
+                  <>
+                    {/* Poll State Indicator */}
+                    <div className="mb-4 flex justify-center">
+                      <PollStateIndicator state={pollState} size="lg" />
+                    </div>
+                    
+                    <PollDisplay 
+                      options={currentActivation.options || []}
+                      votes={pollVotes}
+                      totalVotes={totalVotes}
+                      displayType={currentActivation.poll_display_type || 'bar'}
+                      resultFormat={currentActivation.poll_result_format || 'both'}
+                      themeColors={{
+                        primary_color: currentActivation.theme?.primary_color || room.theme?.primary_color || globalTheme.primary_color,
+                        secondary_color: currentActivation.theme?.secondary_color || room.theme?.secondary_color || globalTheme.secondary_color
+                      }}
+                    />
+                  </>
                 )}
               </>
             )}
@@ -873,6 +862,8 @@ export default function Results() {
             <div>Current Activation: {currentActivation?.id || 'None'}</div>
             <div>Activation Type: {currentActivation?.type || 'N/A'}</div>
             <div>Poll State: {pollState}</div>
+            <div>Poll Total Votes: {totalVotes}</div>
+            <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
             <div>Show Answers: {showAnswers ? 'true' : 'false'}</div>
             
             <div className="mt-2 font-bold">Actions:</div>
@@ -887,10 +878,18 @@ export default function Results() {
                 console.log('Current players:', players);
                 console.log('Current activation:', currentActivation);
                 console.log('Current rankings:', playerRankings);
+                console.log('Poll votes:', pollVotes);
+                console.log('Total votes:', totalVotes);
               }}
               className="px-2 py-1 bg-blue-800 text-blue-200 rounded"
             >
               Log State
+            </button>
+            <button
+              onClick={() => setActivationRefreshCount(c => c + 1)}
+              className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
+            >
+              Refresh Activation
             </button>
           </div>
         )}
