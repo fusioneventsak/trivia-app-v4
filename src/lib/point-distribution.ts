@@ -286,6 +286,45 @@ export async function getLeaderboard(roomId: string): Promise<any[]> {
 }
 
 /**
+ * Gets all poll votes for an activation and returns them in a structured format
+ */
+export async function getPollVotes(activationId: string): Promise<{[key: string]: number}> {
+  try {
+    console.log(`Fetching poll votes for activation ${activationId}`);
+    const { data, error } = await supabase
+      .from('analytics_events')
+      .select('event_data')
+      .eq('event_type', 'poll_vote')
+      .eq('activation_id', activationId);
+      
+    if (error) {
+      console.error('Error fetching poll votes:', error);
+      return {};
+    }
+    
+    // Count votes by answer
+    const votes: {[key: string]: number} = {};
+    
+    if (data && data.length > 0) {
+      data.forEach(event => {
+        const answer = event.event_data?.answer;
+        if (answer) {
+          votes[answer] = (votes[answer] || 0) + 1;
+        }
+      });
+      
+      console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
+      console.log('Vote counts:', votes);
+    }
+    
+    return votes;
+  } catch (error) {
+    console.error('Error fetching poll votes:', error);
+    return {};
+  }
+}
+
+/**
  * Distributes points to all players who answered correctly when timer expires
  */
 export async function distributePointsOnTimerExpiry(
