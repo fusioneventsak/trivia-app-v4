@@ -256,7 +256,7 @@ export function subscribeToPollVotes(
   activationId: string, 
   onVotesUpdate: (votes: Record<string, number>) => void,
   onPollStateChange?: (state: string) => void
-) {
+): () => void {
   console.log(`Setting up poll vote subscription for activation ${activationId}`);
   
   // Initial votes fetch from database - use direct fetch for reliability
