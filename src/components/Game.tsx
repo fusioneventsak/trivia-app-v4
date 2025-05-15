@@ -287,7 +287,7 @@ export default function Game() {
     
     // Reset timer state
     setTimeRemaining(null);
-    setShowAnswers(true); // Default to showing answers
+    setShowAnswers(false); // Default to showing answers
     
     // If no activation or no time limit, show answers and return
     if (!activation || !activation.time_limit) {
@@ -305,17 +305,7 @@ export default function Game() {
       // If timer has already expired, show answers
       if (elapsedMs >= totalTimeMs) {
         setTimeRemaining(0);
-        setShowAnswers(activation.show_answers !== false);
-        
-        // If correct answer and not already shown, trigger confetti
-        if (showResult && isCorrect && !showAnswers) {
-          confetti({
-            particleCount: 100,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-        }
-        
+        setShowAnswers(true); // Always show answers when timer expires
         return;
       }
       
@@ -328,55 +318,35 @@ export default function Game() {
       timerIntervalRef.current = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev === null || prev <= 1) {
-            // Time's up - clear interval and check if we should show answers
+            // Time's up - clear interval and always show answers
             if (timerIntervalRef.current) {
               clearInterval(timerIntervalRef.current);
               timerIntervalRef.current = null;
             }
             
-            // Check if answers should be shown
-            supabase
-              .from('activations')
-              .select('show_answers')
-              .eq('id', activation.id)
-              .single()
-              .then(({ data }) => {
-                if (data) {
-                  setShowAnswers(data.show_answers !== false);
-                  
-                  // If correct answer and now showing answers, trigger confetti
-                  if (showResult && isCorrect) {
-                    confetti({
-                      particleCount: 100,
-                      spread: 70,
-                      origin: { y: 0.6 }
-                    });
-                  }
-                  
-                  // Check if we need to award points for this answer
-                  if (!hasCheckedAnswer && hasAnswered && isCorrect) {
-                    setHasCheckedAnswer(true);
-                    
-                    // Calculate points based on time taken
-                    if (answerStartTime && currentPlayerId && getCurrentPlayer()) {
-                      const timeTakenMs = Date.now() - answerStartTime;
-                      const timeTakenSeconds = timeTakenMs / 1000;
-                      const pointsAwarded = calculatePoints(timeTakenSeconds);
-                      
-                      // Show points animation
-                      setPointsEarned(pointsAwarded);
-                      
-                      // Trigger confetti for correct answer
-                      confetti({
-                        particleCount: 100,
-                        spread: 70,
-                        origin: { y: 0.6 }
-                      });
-                    }
-                  }
-                }
-              })
-              .catch(err => console.error('Error checking show_answers:', err));
+            setShowAnswers(true); // Always show answers when timer expires
+            
+            // Check if we need to award points for this answer
+            if (!hasCheckedAnswer && hasAnswered && isCorrect) {
+              setHasCheckedAnswer(true);
+              
+              // Calculate points based on time taken
+              if (answerStartTime && currentPlayerId && getCurrentPlayer()) {
+                const timeTakenMs = Date.now() - answerStartTime;
+                const timeTakenSeconds = timeTakenMs / 1000;
+                const pointsAwarded = calculatePoints(timeTakenSeconds);
+                
+                // Show points animation
+                setPointsEarned(pointsAwarded);
+                
+                // Trigger confetti for correct answer
+                confetti({
+                  particleCount: 100,
+                  spread: 70,
+                  origin: { y: 0.6 }
+                });
+              }
+            }
             
             return 0;
           }
@@ -399,49 +369,29 @@ export default function Game() {
               timerIntervalRef.current = null;
             }
             
-            // Check if answers should be shown
-            supabase
-              .from('activations')
-              .select('show_answers')
-              .eq('id', activation.id)
-              .single()
-              .then(({ data }) => {
-                if (data) {
-                  setShowAnswers(data.show_answers !== false);
-                  
-                  // If correct answer and now showing answers, trigger confetti
-                  if (showResult && isCorrect) {
-                    confetti({
-                      particleCount: 100,
-                      spread: 70,
-                      origin: { y: 0.6 }
-                    });
-                  }
-                  
-                  // Check if we need to award points for this answer
-                  if (!hasCheckedAnswer && hasAnswered && isCorrect) {
-                    setHasCheckedAnswer(true);
-                    
-                    // Calculate points based on time taken
-                    if (answerStartTime && currentPlayerId && getCurrentPlayer()) {
-                      const timeTakenMs = Date.now() - answerStartTime;
-                      const timeTakenSeconds = timeTakenMs / 1000;
-                      const pointsAwarded = calculatePoints(timeTakenSeconds);
-                      
-                      // Show points animation
-                      setPointsEarned(pointsAwarded);
-                      
-                      // Trigger confetti for correct answer
-                      confetti({
-                        particleCount: 100,
-                        spread: 70,
-                        origin: { y: 0.6 }
-                      });
-                    }
-                  }
-                }
-              })
-              .catch(err => console.error('Error checking show_answers:', err));
+            setShowAnswers(true); // Always show answers when timer expires
+            
+            // Check if we need to award points for this answer
+            if (!hasCheckedAnswer && hasAnswered && isCorrect) {
+              setHasCheckedAnswer(true);
+              
+              // Calculate points based on time taken
+              if (answerStartTime && currentPlayerId && getCurrentPlayer()) {
+                const timeTakenMs = Date.now() - answerStartTime;
+                const timeTakenSeconds = timeTakenMs / 1000;
+                const pointsAwarded = calculatePoints(timeTakenSeconds);
+                
+                // Show points animation
+                setPointsEarned(pointsAwarded);
+                
+                // Trigger confetti for correct answer
+                confetti({
+                  particleCount: 100,
+                  spread: 70,
+                  origin: { y: 0.6 }
+                });
+              }
+            }
             
             return 0;
           }
@@ -459,7 +409,7 @@ export default function Game() {
       }
     };
   }, []);
-
+  
   const initPollVotes = async (activation: Activation) => {
     if (!activation.options) return;
 
@@ -916,9 +866,6 @@ export default function Game() {
     }
   };
 
-  // Get active theme from room or default
-  const activeTheme = room?.theme || theme;
-
   // Debug panel
   const renderDebugPanel = () => {
     if (!debugMode) return null;
@@ -993,6 +940,9 @@ export default function Game() {
       </div>
     );
   }
+
+  // Get active theme from room or default
+  const activeTheme = room?.theme || theme;
 
   return (
     <div 

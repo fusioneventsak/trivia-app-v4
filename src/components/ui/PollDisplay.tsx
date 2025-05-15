@@ -55,10 +55,12 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
       '#F59E0B', // Yellow
       '#EF4444', // Red
       '#06B6D4', // Cyan
+      '#8B5CF6', // Purple
       '#EC4899', // Pink
       '#F97316', // Orange
       '#14B8A6', // Teal
     ];
+
     return baseColors[index % baseColors.length];
   };
 
