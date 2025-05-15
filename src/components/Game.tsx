@@ -94,7 +94,7 @@ export default function Game() {
   
   // Timer state
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
-  const [showAnswers, setShowAnswers] = useState<boolean>(true);
+  const [showAnswers, setShowAnswers] = useState(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Point animation state
@@ -474,7 +474,9 @@ export default function Game() {
     setPollState(activation.poll_state || 'pending');
     
     // Fetch existing votes from analytics
-    fetchPollVotes(activation.id);
+    const allVotes = await getPollVotes(activation.id);
+    setPollVotes(allVotes);
+    setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
   };
   
   const fetchPollVotes = async (activationId: string) => {
@@ -490,18 +492,25 @@ export default function Game() {
       
       if (data && data.length > 0) {
         // Count votes
-        const votes: PollVotes = { ...pollVotes };
+        const votes: PollVotes = {};
+        activation.options?.forEach(option => {
+          votes[option.text] = 0;
+        });
         
         data.forEach(event => {
           const answer = event.event_data?.answer;
           if (answer && votes[answer] !== undefined) {
-            votes[answer] += 1;
+            votes[answer]++;
           }
         });
         
-        // Update state
         setPollVotes(votes);
-        setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+        setTotalVotes(data.length);
+        
+        if (debugMode) {
+          console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
+          console.log('Vote counts:', votes);
+        }
         
         // Check if current player has already voted
         if (currentPlayerId) {
@@ -769,9 +778,9 @@ export default function Game() {
         room_id: roomId,
         activation_id: activeQuestion.id,
         user_id: null,
+        player_name: getCurrentPlayer()?.name,
         event_data: {
           player_id: currentPlayerId,
-          player_name: getCurrentPlayer()?.name,
           answer: answer
         }
       }]);
