@@ -259,7 +259,7 @@ export function subscribeToPollVotes(
 ) {
   console.log(`Setting up poll vote subscription for activation ${activationId}`);
   
-  // Initial votes fetch from database
+  // Initial votes fetch from database - use direct fetch for reliability
   const fetchInitialVotes = async () => {
     try {
       const { data, error } = await supabase
@@ -371,12 +371,18 @@ export function subscribeToPollVotes(
     })
     .subscribe();
   
+  // Set up a periodic refresh to ensure data consistency
+  const refreshInterval = setInterval(() => {
+    fetchInitialVotes();
+  }, 10000); // Refresh every 10 seconds
+  
   // Return a cleanup function
   return () => {
     console.log(`Cleaning up poll subscriptions for ${activationId}`);
     pollChannel.unsubscribe();
     stateChannel.unsubscribe();
     broadcastChannel.unsubscribe();
+    clearInterval(refreshInterval);
   };
 }
 
