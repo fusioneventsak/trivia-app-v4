@@ -219,7 +219,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
           return (
             <div key={index} className="space-y-1">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-white">
+                <div className="flex items-center">
                   <div className="flex items-center">
                     {isSelected && <CheckCircle className="w-4 h-4 mr-1 text-green-400" />}
                     {option.media_type !== 'none' && option.media_url && (
