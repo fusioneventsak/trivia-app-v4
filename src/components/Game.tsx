@@ -1,7 +1,4 @@
-{
-  `path`: `src/components/Game_UPDATED.tsx`,
-  `command`: `create`,
-  `file_text`: `import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
 import { Trophy, Settings, CheckCircle, XCircle, Users, Send, Clock, PlayCircle, X, Lock, WifiOff } from 'lucide-react';
@@ -166,11 +163,11 @@ export default function Game() {
   useEffect(() => {
     if (!currentPlayerId || !getCurrentPlayer()) {
       // Player doesn't exist, redirect back to join page
-      console.log(\"No player found, redirecting to join page\");
+      console.log("No player found, redirecting to join page");
       navigate('/join', { 
         state: { 
           roomId: roomId,
-          message: \"Please enter your name to rejoin the game.\"
+          message: "Please enter your name to rejoin the game."
         }
       });
     }
@@ -214,7 +211,7 @@ export default function Game() {
             }
           }
         } catch (err) {
-          console.error(\"Error checking player's poll vote:\", err);
+          console.error("Error checking player's poll vote:", err);
         }
       }
     };
@@ -229,7 +226,7 @@ export default function Game() {
     const cleanup = subscribeToRoomUpdates(roomId, {
       onActivationChange: async (activation) => {
         if (debugMode) {
-          console.log(\"New activation received:\", activation);
+          console.log("New activation received:", activation);
         }
         
         setActiveQuestion(activation);
@@ -259,12 +256,12 @@ export default function Game() {
           const cleanup = subscribeToPollVotes(
             activation.id, 
             (votes) => {
-              console.log(\"Poll votes updated:\", votes);
+              console.log("Poll votes updated:", votes);
               setPollVotes(votes);
               setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
             },
             (state) => {
-              console.log(\"Poll state changed:\", state);
+              console.log("Poll state changed:", state);
               setPollState(state || 'pending');
             }
           );
@@ -301,7 +298,7 @@ export default function Game() {
               }
             }
           } catch (err) {
-            console.error(\"Error checking player's poll vote:\", err);
+            console.error("Error checking player's poll vote:", err);
           }
         }
       },
@@ -872,27 +869,28 @@ export default function Game() {
           : 'bg-red-100 text-red-800'
         }
       `}>
-        <div className=\"flex items-center justify-center gap-2 text-lg font-semibold\">
+        
+        <div className="flex items-center justify-center gap-2 text-lg font-semibold">
           {isCorrect ? (
             <>
-              <CheckCircle className=\"w-5 h-5\" />
+              <CheckCircle className="w-5 h-5" />
               <span>Correct Answer!</span>
             </>
           ) : (
             <>
-              <XCircle className=\"w-5 h-5\" />
+              <XCircle className="w-5 h-5" />
               <span>Wrong Answer</span>
             </>
           )}
         </div>
         {!isCorrect && activeQuestion?.type === 'multiple_choice' && showAnswers && (
-          <p className=\"text-sm mt-1 opacity-90\">
-            The correct answer was: <span className=\"font-medium\">{activeQuestion.correct_answer}</span>
+          <p className="text-sm mt-1 opacity-90">
+            The correct answer was: <span className="font-medium">{activeQuestion.correct_answer}</span>
           </p>
         )}
         {!isCorrect && activeQuestion?.type === 'text_answer' && showAnswers && (
-          <p className=\"text-sm mt-1 opacity-90\">
-            The correct answer was: <span className=\"font-medium\">{activeQuestion.exact_answer}</span>
+          <p className="text-sm mt-1 opacity-90">
+            The correct answer was: <span className="font-medium">{activeQuestion.exact_answer}</span>
           </p>
         )}
       </div>
@@ -936,12 +934,12 @@ export default function Game() {
       case 'image':
       case 'gif':
         return (
-          <div className=\"flex justify-center items-center mb-4\">
-            <div className=\"rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block\">
+          <div className="flex justify-center items-center mb-4">
+            <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
               <img 
                 src={getStorageUrl(activeQuestion.media_url)} 
-                alt=\"Question media\" 
-                className=\"max-h-40 object-contain\"
+                alt="Question media" 
+                className="max-h-40 object-contain"
                 onError={(e) => {
                   console.error('Error loading image:', activeQuestion.media_url);
                   e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Preview';
@@ -951,13 +949,13 @@ export default function Game() {
           </div>
         );
       case 'youtube':
-        const videoId = activeQuestion.media_url.match(/(?:youtu\\.be\\/|youtube\\.com\\/(?:embed\\/|v\\/|watch\\?v=|watch\\?.+&v=))([^&?]+)/)?.[1];
+        const videoId = activeQuestion.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/)?.[1];
         return videoId ? (
-          <div className=\"flex justify-center items-center mb-4\">
-            <div className=\"w-full max-w-md rounded-lg shadow-sm overflow-hidden\">
-              <div className=\"aspect-video max-h-40\">
+          <div className="flex justify-center items-center mb-4">
+            <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
+              <div className="aspect-video max-h-40">
                 <iframe
-                  className=\"w-full h-full\"
+                  className="w-full h-full"
                   src={`https://www.youtube.com/embed/${videoId}`}
                   allowFullScreen
                 />
@@ -975,10 +973,10 @@ export default function Game() {
     if (!debugMode) return null;
     
     return (
-      <div className=\"fixed bottom-0 left-0 right-0 bg-black/80 text-white p-2 text-xs font-mono z-50 max-h-40 overflow-auto\">
-        <div className=\"flex justify-between mb-1\">
-          <span className=\"font-bold\">DEBUG MODE</span>
-          <button onClick={() => setDebugMode(false)} className=\"text-red-400\">Close</button>
+      <div className="fixed bottom-0 left-0 right-0 bg-black/80 text-white p-2 text-xs font-mono z-50 max-h-40 overflow-auto">
+        <div className="flex justify-between mb-1">
+          <span className="font-bold">DEBUG MODE</span>
+          <button onClick={() => setDebugMode(false)} className="text-red-400">Close</button>
         </div>
         <div>Player ID: {currentPlayerId}</div>
         <div>Player Name: {currentPlayer?.name}</div>
@@ -1006,18 +1004,18 @@ export default function Game() {
   if (networkError) {
     return (
       <div 
-        className=\"flex flex-col items-center justify-center min-h-screen p-4 bg-theme-gradient\"
+        className="flex flex-col items-center justify-center min-h-screen p-4 bg-theme-gradient"
         style={{ 
           background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
         }}
       >
-        <div className=\"bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center\">
-          <WifiOff className=\"w-16 h-16 text-red-500 mx-auto mb-4\" />
-          <h1 className=\"text-2xl font-bold text-gray-800 mb-4\">Network Error</h1>
-          <p className=\"text-gray-600 mb-6\">Unable to connect to the server. Please check your internet connection.</p>
+        <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center">
+          <WifiOff className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Network Error</h1>
+          <p className="text-gray-600 mb-6">Unable to connect to the server. Please check your internet connection.</p>
           <button
             onClick={() => window.location.reload()}
-            className=\"px-6 py-3 text-white rounded-lg transition\"
+            className="px-6 py-3 text-white rounded-lg transition"
             style={{ backgroundColor: activeTheme.primary_color }}
           >
             Retry Connection
@@ -1030,17 +1028,17 @@ export default function Game() {
   if (!currentPlayer) {
     return (
       <div 
-        className=\"flex flex-col items-center justify-center min-h-screen p-4 bg-theme-gradient\"
+        className="flex flex-col items-center justify-center min-h-screen p-4 bg-theme-gradient"
         style={{ 
           background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
         }}
       >
-        <div className=\"bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center\">
-          <h1 className=\"text-2xl font-bold text-gray-800 mb-4\">Join a Room</h1>
-          <p className=\"text-white/70 mb-6\">You need to join a room to play.</p>
+        <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Join a Room</h1>
+          <p className="text-white/70 mb-6">You need to join a room to play.</p>
           <button
             onClick={() => navigate('/join')}
-            className=\"px-6 py-3 text-white rounded-lg transition\"
+            className="px-6 py-3 text-white rounded-lg transition"
             style={{ backgroundColor: activeTheme.primary_color }}
           >
             Join a Room
@@ -1052,65 +1050,65 @@ export default function Game() {
 
   return (
     <div 
-      className=\"min-h-screen p-4 bg-theme-gradient\"
+      className="min-h-screen p-4 bg-theme-gradient"
       style={{ 
         background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
       }}
     >
-      <div className=\"max-w-3xl mx-auto\">
+      <div className="max-w-3xl mx-auto">
         {/* Header */}
-        <div className=\"bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-4 mb-4 flex items-center justify-between\">
-          <div className=\"flex items-center\">
+        <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-4 mb-4 flex items-center justify-between">
+          <div className="flex items-center">
             <div 
-              className=\"w-10 h-10 rounded-full flex items-center justify-center font-bold mr-3\"
+              className="w-10 h-10 rounded-full flex items-center justify-center font-bold mr-3"
               style={{ backgroundColor: `${activeTheme.primary_color}40` }}
             >
               {currentPlayer.name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h1 className=\"text-lg font-semibold text-white\">{currentPlayer.name}</h1>
-              <div className=\"text-sm text-white/80 flex items-center\">
+              <h1 className="text-lg font-semibold text-white">{currentPlayer.name}</h1>
+              <div className="text-sm text-white/80 flex items-center">
                 <PointsDisplay points={currentPlayer.score || 0} />
               </div>
             </div>
           </div>
           
-          <div className=\"flex items-center gap-2\">
+          <div className="flex items-center gap-2">
             <button
               onClick={toggleLeaderboard}
-              className=\"p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full\"
-              title=\"Leaderboard\"
+              className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full"
+              title="Leaderboard"
             >
-              <Trophy className=\"w-5 h-5\" />
+              <Trophy className="w-5 h-5" />
             </button>
             <button
               onClick={() => setDebugMode(!debugMode)}
-              className=\"p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full\"
-              title={debugMode ? \"Hide Debug Info\" : \"Show Debug Info\"}
+              className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full"
+              title={debugMode ? "Hide Debug Info" : "Show Debug Info"}
             >
-              <Settings className=\"w-5 h-5\" />
+              <Settings className="w-5 h-5" />
             </button>
           </div>
         </div>
         
         {/* Active Question */}
         {activeQuestion ? (
-          <div className=\"bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-4 text-white relative\">
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-4 text-white relative">
             {/* Points animation */}
             {pointsEarned > 0 && (
               <PointAnimation 
                 points={pointsEarned} 
-                className=\"absolute top-2 right-2\"
+                className="absolute top-2 right-2"
               />
             )}
             
             {/* Timer Display */}
             {activeQuestion.time_limit && activeQuestion.timer_started_at && (
-              <div className=\"mb-4 flex justify-center\">
+              <div className="mb-4 flex justify-center">
                 <CountdownTimer 
                   initialSeconds={activeQuestion.time_limit}
                   startTime={activeQuestion.timer_started_at}
-                  variant=\"large\"
+                  variant="large"
                   onComplete={() => {
                     if (activeQuestion.type === 'poll') {
                       // For polls, just show the results when timer expires
@@ -1126,18 +1124,18 @@ export default function Game() {
             
             {/* Poll State Indicator */}
             {activeQuestion.type === 'poll' && (
-              <div className=\"mb-4 flex justify-center\">
+              <div className="mb-4 flex justify-center">
                 <PollStateIndicator state={pollState} />
               </div>
             )}
             
-            <h2 className=\"text-xl font-semibold mb-4\">{activeQuestion.question}</h2>
+            <h2 className="text-xl font-semibold mb-4">{activeQuestion.question}</h2>
             
             {renderMediaContent()}
             
             {/* Multiple Choice Question */}
             {activeQuestion.type === 'multiple_choice' && (
-              <div className=\"grid grid-cols-1 sm:grid-cols-2 gap-4\">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {activeQuestion.options?.map((option, index) => {
                   const isSelected = option.text === selectedAnswer;
                   const isCorrect = option.text === activeQuestion.correct_answer;
@@ -1163,33 +1161,33 @@ export default function Game() {
                         }
                       `}
                     >
-                      <div className=\"flex items-center gap-3\">
+                      <div className="flex items-center gap-3">
                         {option.media_type !== 'none' && option.media_url && (
-                          <div className=\"w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-black/20\">
+                          <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
                             <img
                               src={option.media_url}
                               alt={option.text}
-                              className=\"w-full h-full object-cover\"
+                              className="w-full h-full object-cover"
                               onError={(e) => {
                                 e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                               }}
                             />
                           </div>
                         )}
-                        <div className=\"flex-1 font-medium truncate\">{option.text}</div>
+                        <div className="flex-1 font-medium truncate">{option.text}</div>
                       </div>
                       
                       {showCorrect && (
-                        <div className=\"absolute -top-2 -right-2\">
-                          <div className=\"w-6 h-6 rounded-full bg-green-500 flex items-center justify-center\">
-                            <CheckCircle className=\"w-4 h-4 text-white\" />
+                        <div className="absolute -top-2 -right-2">
+                          <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
+                            <CheckCircle className="w-4 h-4 text-white" />
                           </div>
                         </div>
                       )}
                       {showIncorrect && (
-                        <div className=\"absolute -top-2 -right-2\">
-                          <div className=\"w-6 h-6 rounded-full bg-red-500 flex items-center justify-center\">
-                            <XCircle className=\"w-4 h-4 text-white\" />
+                        <div className="absolute -top-2 -right-2">
+                          <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center">
+                            <XCircle className="w-4 h-4 text-white" />
                           </div>
                         </div>
                       )}
@@ -1201,13 +1199,13 @@ export default function Game() {
             
             {/* Text Answer Question */}
             {activeQuestion.type === 'text_answer' && (
-              <form onSubmit={handleTextAnswerSubmit} className=\"space-y-4\">
-                <div className=\"bg-white/20 p-4 rounded-lg\">
+              <form onSubmit={handleTextAnswerSubmit} className="space-y-4">
+                <div className="bg-white/20 p-4 rounded-lg">
                   <input
-                    type=\"text\"
+                    type="text"
                     value={textAnswer}
                     onChange={(e) => setTextAnswer(e.target.value)}
-                    placeholder=\"Type your answer here...\"
+                    placeholder="Type your answer here..."
                     disabled={hasAnswered}
                     className={`w-full px-4 py-3 bg-white/10 border ${
                       hasAnswered 
@@ -1223,12 +1221,12 @@ export default function Game() {
                 
                 {!hasAnswered && (
                   <button
-                    type=\"submit\"
+                    type="submit"
                     disabled={!textAnswer.trim()}
-                    className=\"w-full flex items-center justify-center gap-2 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed\"
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ backgroundColor: activeTheme.primary_color }}
                   >
-                    <Send className=\"w-4 h-4\" />
+                    <Send className="w-4 h-4" />
                     Submit Answer
                   </button>
                 )}
@@ -1239,9 +1237,9 @@ export default function Game() {
             
             {/* Poll Question */}
             {activeQuestion.type === 'poll' && (
-              <div className=\"mt-4\">
+              <div className="mt-4">
                 {!pollVoted && pollState === 'voting' ? (
-                  <div className=\"grid grid-cols-1 gap-3\">
+                  <div className="grid grid-cols-1 gap-3">
                     {activeQuestion.options?.map((option, index) => (
                       <button
                         key={index}
@@ -1251,13 +1249,13 @@ export default function Game() {
                           pollState !== 'voting' ? 'cursor-not-allowed opacity-70' : ''
                         }`}
                       >
-                        <div className=\"flex items-center gap-3\">
+                        <div className="flex items-center gap-3">
                           {option.media_type !== 'none' && option.media_url && (
-                            <div className=\"w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-black/20\">
+                            <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-black/20">
                               <img
                                 src={getStorageUrl(option.media_url)}
                                 alt={option.text}
-                                className=\"w-full h-full object-cover\"
+                                className="w-full h-full object-cover"
                                 onError={(e) => {
                                   console.error('Error loading option image:', option.media_url);
                                   e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
@@ -1265,18 +1263,18 @@ export default function Game() {
                               />
                             </div>
                           )}
-                          <div className=\"flex-1 font-medium\">{option.text}</div>
+                          <div className="flex-1 font-medium">{option.text}</div>
                         </div>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className={pollState === 'pending' ? \"p-4 bg-yellow-100/20 rounded-lg text-center\" : \"\"}>
+                  <div className={pollState === 'pending' ? "p-4 bg-yellow-100/20 rounded-lg text-center" : ""}>
                     {pollState === 'pending' ? (
-                      <div className=\"flex flex-col items-center gap-3\">
-                        <Clock className=\"w-8 h-8 text-yellow-300\" />
-                        <p className=\"text-lg font-medium\">Waiting for voting to begin</p>
-                        <p className=\"text-sm opacity-80\">The host will start the voting soon</p>
+                      <div className="flex flex-col items-center gap-3">
+                        <Clock className="w-8 h-8 text-yellow-300" />
+                        <p className="text-lg font-medium">Waiting for voting to begin</p>
+                        <p className="text-sm opacity-80">The host will start the voting soon</p>
                       </div>
                     ) : (
                       <PollDisplay 
@@ -1297,9 +1295,9 @@ export default function Game() {
                 )}
                 
                 {pollState === 'pending' && (
-                  <div className=\"mt-3 bg-white/10 p-3 rounded-lg text-center text-sm\">
-                    <div className=\"flex items-center justify-center gap-2 mb-2\">
-                      <Lock className=\"w-4 h-4\" />
+                  <div className="mt-3 bg-white/10 p-3 rounded-lg text-center text-sm">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <Lock className="w-4 h-4" />
                       <span>Voting is not active yet</span>
                     </div>
                     <p>Please wait for the host to start the voting.</p>
@@ -1309,18 +1307,18 @@ export default function Game() {
             )}
             
             {activeQuestion.type === 'leaderboard' && (
-              <div className=\"text-center p-4 bg-white/10 rounded-lg\">
-                <p className=\"text-white\">
+              <div className="text-center p-4 bg-white/10 rounded-lg">
+                <p className="text-white">
                   The leaderboard is displayed on the main screen.
                 </p>
               </div>
             )}
           </div>
         ) : (
-          <div className=\"bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-8 mb-4 text-center\">
-            <PlayCircle className=\"w-16 h-16 text-white/50 mx-auto mb-4\" />
-            <h2 className=\"text-xl font-semibold text-white mb-2\">Waiting for the next question</h2>
-            <p className=\"text-white/80\">
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-8 mb-4 text-center">
+            <PlayCircle className="w-16 h-16 text-white/50 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">Waiting for the next question</h2>
+            <p className="text-white/80">
               The host will start a new question soon. Get ready!
             </p>
           </div>
@@ -1330,22 +1328,22 @@ export default function Game() {
         {showLeaderboard && (
           <div 
             ref={leaderboardRef}
-            className=\"bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-4 animate-pop-in\"
+            className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-4 animate-pop-in"
           >
-            <div className=\"flex items-center justify-between mb-4\">
-              <h2 className=\"text-lg font-semibold text-white flex items-center\">
-                <Trophy className=\"w-5 h-5 text-yellow-300 mr-2\" />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white flex items-center">
+                <Trophy className="w-5 h-5 text-yellow-300 mr-2" />
                 Leaderboard
               </h2>
               <button
                 onClick={toggleLeaderboard}
-                className=\"p-1 text-white/70 hover:text-white rounded-full hover:bg-white/10\"
+                className="p-1 text-white/70 hover:text-white rounded-full hover:bg-white/10"
               >
-                <X className=\"w-5 h-5\" />
+                <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className=\"space-y-2 max-h-60 overflow-y-auto\">
+            <div className="space-y-2 max-h-60 overflow-y-auto">
               {[currentPlayer, ...otherPlayers]
                 .sort((a, b) => (b.score || 0) - (a.score || 0))
                 .map((player, index) => (
@@ -1360,7 +1358,7 @@ export default function Game() {
                 ))}
                 
               {otherPlayers.length === 0 && (
-                <div className=\"text-center py-4 text-white/70\">
+                <div className="text-center py-4 text-white/70">
                   No other players have joined yet
                 </div>
               )}
@@ -1371,6 +1369,4 @@ export default function Game() {
       {renderDebugPanel()}
     </div>
   );
-}
-`
 }
