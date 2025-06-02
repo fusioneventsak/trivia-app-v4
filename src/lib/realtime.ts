@@ -95,7 +95,7 @@ export const subscribeToPollVotes = (
   const votesChannel = supabase
     .channel(`poll_votes_${activationId}`)
     .on('postgres_changes', {
-      event: '*',
+      event: 'INSERT',
       schema: 'public',
       table: 'poll_votes',
       filter: `activation_id=eq.${activationId}`
