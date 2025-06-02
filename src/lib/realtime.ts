@@ -1,34 +1,31 @@
 import { supabase } from './supabase';
 
-export interface PollVotes {
-  [optionText: string]: number;
+interface PollVotes {
+  [key: string]: number;
 }
 
-export type PollState = 'pending' | 'voting' | 'closed';
-
+// Get poll votes for an activation
 export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
   try {
-    // Query poll votes directly from the table
     const { data, error } = await supabase
       .from('poll_votes')
-      .select('option_text')
+      .select('option_id')
       .eq('activation_id', activationId);
       
     if (error) {
       console.error('Error fetching poll votes:', error);
-      return {};
+      throw error;
     }
     
-    // Count votes for each option
+    // Count votes by option_id
     const votes: PollVotes = {};
-    if (data && Array.isArray(data)) {
-      data.forEach((vote: any) => {
-        const optionText = vote.option_text;
-        votes[optionText] = (votes[optionText] || 0) + 1;
-      });
-    }
+    data?.forEach(vote => {
+      if (vote.option_id) {
+        votes[vote.option_id] = (votes[vote.option_id] || 0) + 1;
+      }
+    });
     
-    console.log('Fetched poll votes:', votes);
+    console.log('Poll votes fetched:', votes);
     return votes;
   } catch (err) {
     console.error('Error in getPollVotes:', err);
@@ -36,73 +33,59 @@ export const getPollVotes = async (activationId: string): Promise<PollVotes> => 
   }
 };
 
+// Subscribe to poll votes changes
 export const subscribeToPollVotes = (
-  activationId: string,
+  activationId: string, 
   onVotesUpdate: (votes: PollVotes) => void,
-  onStateChange?: (state: PollState) => void
+  onPollStateChange?: (state: 'pending' | 'voting' | 'closed') => void
 ): (() => void) => {
-  console.log('Setting up poll subscription for activation:', activationId);
-  
-  // Function to fetch current votes
+  // Initial fetch
   const fetchVotes = async () => {
     const votes = await getPollVotes(activationId);
     onVotesUpdate(votes);
   };
   
-  // Initial fetch
   fetchVotes();
   
   // Subscribe to poll_votes changes
   const votesChannel = supabase
     .channel(`poll_votes_${activationId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'poll_votes',
-        filter: `activation_id=eq.${activationId}`
-      },
-      (payload) => {
-        console.log('Poll vote change detected:', payload);
-        fetchVotes();
-      }
-    )
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'poll_votes',
+      filter: `activation_id=eq.${activationId}`
+    }, async () => {
+      console.log('Poll votes changed, fetching updated votes');
+      const votes = await getPollVotes(activationId);
+      onVotesUpdate(votes);
+    })
     .subscribe();
     
-  // Subscribe to activation changes for poll state
-  let activationChannel: any = null;
-  if (onStateChange) {
-    activationChannel = supabase
-      .channel(`poll_state_${activationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'activations',
-          filter: `id=eq.${activationId}`
-        },
-        (payload) => {
-          if (payload.new?.poll_state) {
-            console.log('Poll state changed to:', payload.new.poll_state);
-            onStateChange(payload.new.poll_state as PollState);
-          }
-        }
-      )
-      .subscribe();
-  }
+  // Subscribe to activation changes (for poll state)
+  const activationChannel = supabase
+    .channel(`activation_poll_state_${activationId}`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'activations',
+      filter: `id=eq.${activationId}`
+    }, (payload) => {
+      if (payload.new?.poll_state && onPollStateChange) {
+        console.log('Poll state changed:', payload.new.poll_state);
+        onPollStateChange(payload.new.poll_state);
+      }
+    })
+    .subscribe();
   
   // Return cleanup function
   return () => {
-    console.log('Cleaning up poll subscription for activation:', activationId);
     votesChannel.unsubscribe();
-    if (activationChannel) {
-      activationChannel.unsubscribe();
-    }
+    activationChannel.unsubscribe();
   };
 };
 
+// Check if a player has already voted
 export const checkIfPlayerVoted = async (
   activationId: string,
   playerId: string
@@ -130,7 +113,7 @@ export const checkIfPlayerVoted = async (
 export const submitPollVote = async (
   activationId: string,
   playerId: string,
-  optionText: string
+  optionId: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
     // First check if player already voted
@@ -145,17 +128,15 @@ export const submitPollVote = async (
       .insert({
         activation_id: activationId,
         player_id: playerId,
-        option_text: optionText
+        option_id: optionId
       });
       
     if (error) {
       console.error('Error submitting poll vote:', error);
-      
       // Check for unique constraint violation
       if (error.code === '23505') {
         return { success: false, error: 'You have already voted in this poll' };
       }
-      
       return { success: false, error: error.message };
     }
     
