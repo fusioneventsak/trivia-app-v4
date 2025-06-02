@@ -1324,4 +1324,16 @@ export default function Game() {
                     key={player.id}
                     player={player}
                     rank={index + 1}
-                    previousRank={previous
+                    previousRank={previousRankings[player.id]}
+                    isCurrentPlayer={player.id === currentPlayerId}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+        
+        {renderDebugPanel()}
+      </div>
+    </div>
+  );
+}
