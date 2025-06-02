@@ -242,11 +242,16 @@ export default function Results() {
   // Handle activation change
   const handleActivationChange = async (activation: Activation | null) => {
     if (debugMode) {
-      console.log('Handling activation change:', activation);
+      console.log('Handling activation change:', activation?.id);
     }
     
     // Check if this is actually a different activation
     const isNewActivation = currentActivationIdRef.current !== activation?.id;
+    
+    if (debugMode) {
+      console.log('Is new activation:', isNewActivation);
+      console.log('Current activation ID ref:', currentActivationIdRef.current);
+    }
     
     // Store previous activation type before updating
     if (isNewActivation) {
@@ -260,8 +265,13 @@ export default function Results() {
     
     // Only clean up and reset if it's a new activation
     if (isNewActivation) {
+      if (debugMode) {
+        console.log('New activation detected, cleaning up previous subscriptions');
+      }
+      
       // Clean up any existing poll subscription
       if (pollSubscriptionRef.current) {
+        console.log('Cleaning up previous poll subscription');
         pollSubscriptionRef.current();
         pollSubscriptionRef.current = null;
       }
@@ -283,15 +293,25 @@ export default function Results() {
     if (activation) {
       // If it's a poll, set up poll-specific subscriptions
       if (activation.type === 'poll' && activation.options) {
+        console.log('Setting up poll subscription for activation:', activation.id);
+        
         // Only init poll votes if it's a new activation
         if (isNewActivation) {
+          console.log('Initializing poll votes for new activation');
           const votes = await getPollVotes(activation.id);
           setPollVotes(votes);
           setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
         }
         
-        // Set up poll subscription (do this even if not a new activation to ensure subscription is active)
-        if (!pollSubscriptionRef.current) {
+        // Always set up a fresh poll subscription to ensure it's active
+        if (pollSubscriptionRef.current) {
+          console.log('Cleaning up existing poll subscription before creating new one');
+          pollSubscriptionRef.current();
+          pollSubscriptionRef.current = null;
+        }
+        
+        console.log('Creating new poll subscription');
+        try {
           const cleanup = subscribeToPollVotes(
             activation.id, 
             (votes) => {
@@ -311,6 +331,8 @@ export default function Results() {
             }
           );
           pollSubscriptionRef.current = cleanup;
+        } catch (err) {
+          console.error('Error setting up poll subscription:', err);
         }
       }
       
@@ -440,58 +462,98 @@ export default function Results() {
     // Subscribe to activation updates (for poll state changes)
     activationChannelRef.current = supabase
       .channel(`activation_updates_${roomId}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'activations',
-        filter: `room_id=eq.${roomId}`
-      }, async (payload) => {
-        if (currentActivationIdRef.current && payload.new.id === currentActivationIdRef.current) {
-          console.log('Current activation updated:', payload.new);
-          
-          // Update activation without resetting everything
-          setCurrentActivation(payload.new);
-          
-          // Update poll state if it changed
-          if (payload.new.poll_state !== payload.old?.poll_state) {
-            setPollState(payload.new.poll_state || 'pending');
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'activations',
+          filter: `room_id=eq.${roomId}`
+        },
+        async (payload) => {
+          if (currentActivationIdRef.current && payload.new.id === currentActivationIdRef.current) {
+            console.log('Current activation updated:', payload.new.id);
+            
+            // Update activation without resetting everything
+            setCurrentActivation(prev => ({
+              ...prev,
+              ...payload.new
+            }));
+            
+            // Update poll state if it changed
+            if (payload.new.poll_state !== payload.old?.poll_state) {
+              console.log(`Poll state changed from ${payload.old?.poll_state} to ${payload.new.poll_state}`);
+              setPollState(payload.new.poll_state || 'pending');
+            }
           }
-          
-          // Don't reset poll votes or subscriptions here
         }
-      })
+      )
       .subscribe();
 
     // Subscribe to player changes
     const playerChannel = supabase
       .channel(`players_${roomId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'players',
-        filter: `room_id=eq.${roomId}`
-      }, async () => {
-        try {
-          const { data, error } = await supabase
-            .from('players')
-            .select('id, name, score, room_id, stats')
-            .eq('room_id', roomId)
-            .order('score', { ascending: false });
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'players',
+          filter: `room_id=eq.${roomId}`
+        },
+        async () => {
+          try {
+            const { data, error } = await supabase
+              .from('players')
+              .select('id, name, score, room_id, stats')
+              .eq('room_id', roomId)
+              .order('score', { ascending: false });
+              
+            if (error) {
+              console.error('Error fetching players:', error);
+              return;
+            }
             
-          if (error) {
-            console.error('Error fetching players:', error);
-            return;
+            // Ensure data is an array
+            const playerData = Array.isArray(data) ? data : [];
+            
+            updateRankings(playerData);
+            setPlayers(playerData);
+          } catch (error) {
+            console.error('Error in player changes handler:', error);
           }
-          
-          // Ensure data is an array
-          const playerData = Array.isArray(data) ? data : [];
-          
-          updateRankings(playerData);
-          setPlayers(playerData);
-        } catch (error) {
-          console.error('Error in player changes handler:', error);
         }
-      })
+      )
+      .subscribe();
+      
+    // Subscribe to poll_votes table directly
+    const pollVotesChannel = supabase
+      .channel(`poll_votes_direct_${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'poll_votes'
+        },
+        async (payload) => {
+          // Check if this vote is for our current activation
+          if (currentActivationIdRef.current && 
+              payload.new && 
+              payload.new.activation_id === currentActivationIdRef.current) {
+            
+            console.log('Direct poll vote detected:', payload.new);
+            
+            // Refresh votes for the current activation
+            if (currentActivation?.type === 'poll') {
+              console.log('Refreshing poll votes after direct detection');
+              const votes = await getPollVotes(currentActivationIdRef.current);
+              setPollVotes(votes);
+              setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+            }
+          }
+        }
+      )
       .subscribe();
       
     // Return cleanup function
@@ -502,6 +564,7 @@ export default function Results() {
       if (activationChannelRef.current) {
         activationChannelRef.current.unsubscribe();
       }
+      pollVotesChannel.unsubscribe();
       playerChannel.unsubscribe();
     };
   };
@@ -779,155 +842,4 @@ export default function Results() {
                           {showAnswers && isCorrect && (
                             <div className="mt-2 text-sm text-green-200">
                               Correct Answer
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
                 
-                {/* Text Answer Question */}
-                {currentActivation.type === 'text_answer' && (
-                  <div className="bg-white/20 p-4 rounded-lg">
-                    {showAnswers ? (
-                      <div className="transition-all duration-500 ease-in-out transform">
-                        <div className="text-white mb-2">Correct Answer:</div>
-                        <div className="bg-green-400/30 p-3 rounded-lg text-white font-medium">
-                          {currentActivation.exact_answer}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center text-white py-3">
-                        <p className="text-lg font-medium mb-2">
-                          The answer will be revealed when the timer expires
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* Poll Question */}
-                {currentActivation.type === 'poll' && (
-                  <>
-                    {/* Poll State Indicator */}
-                    <div className="mb-4 flex justify-center">
-                      <PollStateIndicator state={pollState} size="lg" />
-                    </div>
-                    
-                    <PollDisplay 
-                      options={currentActivation.options || []}
-                      votes={pollVotes}
-                      totalVotes={totalVotes}
-                      displayType={currentActivation.poll_display_type || 'bar'}
-                      resultFormat={currentActivation.poll_result_format || 'both'}
-                      selectedAnswer={null}
-                      getStorageUrl={getStorageUrl}
-                      themeColors={{
-                        primary_color: currentActivation.theme?.primary_color || room.theme?.primary_color || globalTheme.primary_color,
-                        secondary_color: currentActivation.theme?.secondary_color || room.theme?.secondary_color || globalTheme.secondary_color
-                      }}
-                    />
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-8 mb-6 text-center">
-            <QRCodeDisplay 
-              value={getJoinUrl()}
-              title="Join the Experience"
-              subtitle={room.settings?.results_page_message || "Scan the QR code to join the fun!"}
-              logoUrl={room.logo_url}
-              primaryColor={activeTheme.primary_color}
-              size={200}
-            />
-          </div>
-        )}
-        
-        {/* Leaderboard */}
-        {room.settings?.show_leaderboard !== false && currentActivation?.type !== 'leaderboard' && (
-          <LeaderboardDisplay 
-            roomId={room.id}
-            maxPlayers={20}
-            autoRefresh={true}
-            refreshInterval={10000}
-            showStats={true}
-          />
-        )}
-
-        {/* Debug Panel */}
-        {debugMode && (
-          <div className="mt-4 p-4 bg-black/70 text-green-400 rounded-lg font-mono text-xs">
-            <div className="mb-2 font-bold">Debug Info:</div>
-            <div>Room ID: {room.id}</div>
-            <div>Room Code: {room.room_code}</div>
-            <div>Players: {Array.isArray(players) ? players.length : 'Not an array'}</div>
-            <div>Current Activation: {currentActivation?.id || 'None'}</div>
-            <div>Current Activation Ref: {currentActivationIdRef.current || 'None'}</div>
-            <div>Activation Type: {currentActivation?.type || 'N/A'}</div>
-            <div>Media Type: {currentActivation?.media_type || 'None'}</div>
-            <div>Media URL: {currentActivation?.media_url ? getStorageUrl(currentActivation.media_url) : 'None'}</div>
-            <div>Poll State: {pollState}</div>
-           <div>Options: {currentActivation?.options ? currentActivation.options.length : 0}</div>
-           {currentActivation?.options && currentActivation.options.map((opt: any, i: number) => (
-             <div key={i} className="ml-2 text-xs">
-               Option {i+1}: {opt.text} | Media: {opt.media_type} | URL: {opt.media_url ? getStorageUrl(opt.media_url) : 'none'}
-             </div>
-           ))}
-            <div>Poll Total Votes: {totalVotes}</div>
-            <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
-            <div>Show Answers: {showAnswers ? 'true' : 'false'}</div>
-            <div>Poll Subscription Active: {pollSubscriptionRef.current ? 'Yes' : 'No'}</div>
-            
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => window.location.reload()}
-                className="px-2 py-1 bg-green-800 text-green-200 rounded"
-              >
-                Refresh Page
-              </button>
-              
-              <button
-                onClick={() => {
-                  console.log('Current players:', players);
-                  console.log('Current activation:', currentActivation);
-                  console.log('Current rankings:', playerRankings);
-                  console.log('Poll votes:', pollVotes);
-                  console.log('Total votes:', totalVotes);
-                  console.log('Poll subscription:', pollSubscriptionRef.current);
-                }}
-                className="px-2 py-1 bg-blue-800 text-blue-200 rounded"
-              >
-                Log State
-              </button>
-              <button
-                onClick={() => setActivationRefreshCount(c => c + 1)}
-                className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
-              >
-                Refresh Activation
-              </button>
-              <button
-                onClick={async () => {
-                  // Force clear poll votes
-                  setPollVotes({});
-                  setTotalVotes(0);
-                  // Re-init poll if it's active
-                  if (currentActivation?.type === 'poll') {
-                    const votes = await getPollVotes(currentActivation.id);
-                    setPollVotes(votes);
-                    setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-                  }
-                }}
-                className="px-2 py-1 bg-red-800 text-red-200 rounded"
-              >
-                Clear Poll Cache
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
