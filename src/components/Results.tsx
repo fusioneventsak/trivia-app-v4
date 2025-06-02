@@ -829,7 +829,6 @@ export default function Results() {
                                   onError={(e) => {
                                    if (debugMode) {
                                      console.log('Error loading option image:', option.media_url);
-                                
                                    }
                                    e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                                   }}
@@ -842,4 +841,120 @@ export default function Results() {
                           {showAnswers && isCorrect && (
                             <div className="mt-2 text-sm text-green-200">
                               Correct Answer
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 
+                {/* Text Answer Question */}
+                {currentActivation.type === 'text_answer' && (
+                  <div className="space-y-4">
+                    {showAnswers && (
+                      <div className="bg-green-400/30 p-4 rounded-xl">
+                        <div className="font-medium text-white mb-1">Correct Answer:</div>
+                        <div className="text-green-200">{currentActivation.exact_answer}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Poll */}
+                {currentActivation.type === 'poll' && (
+                  <div className="space-y-4">
+                    <PollStateIndicator state={pollState} />
+                    
+                    <PollDisplay
+                      options={currentActivation.options || []}
+                      votes={pollVotes}
+                      totalVotes={totalVotes}
+                      displayType={currentActivation.poll_display_type || 'bar'}
+                      resultFormat={currentActivation.poll_result_format || 'both'}
+                      showResults={pollState === 'closed'}
+                      theme={activeTheme}
+                    />
+                  </div>
+                )}
+                
+                {/* Social Wall */}
+                {currentActivation.type === 'social_wall' && (
+                  <div className="space-y-4">
+                    {/* Social wall content here */}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6 text-center">
+            <h2 className="text-xl font-semibold text-white mb-4">Waiting for next question...</h2>
+            <QRCodeDisplay url={getJoinUrl()} theme={activeTheme} />
+          </div>
+        )}
+        
+        {/* Player Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 flex items-center">
+            <Users className="w-6 h-6 text-white mr-3" />
+            <div>
+              <div className="text-sm text-white/80">Players</div>
+              <div className="text-xl font-bold text-white">{players.length}</div>
+            </div>
+          </div>
+          
+          {currentActivation?.type === 'poll' && (
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 flex items-center">
+              <PlayCircle className="w-6 h-6 text-white mr-3" />
+              <div>
+                <div className="text-sm text-white/80">Total Votes</div>
+                <div className="text-xl font-bold text-white">{totalVotes}</div>
+              </div>
+            </div>
+          )}
+          
+          {timeRemaining !== null && (
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 flex items-center">
+              <Clock className="w-6 h-6 text-white mr-3" />
+              <div>
+                <div className="text-sm text-white/80">Time Left</div>
+                <div className="text-xl font-bold text-white">{timeRemaining}s</div>
+              </div>
+            </div>
+          )}
+          
+          {currentActivation?.type === 'multiple_choice' && showAnswers && (
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 flex items-center">
+              <Lock className="w-6 h-6 text-white mr-3" />
+              <div>
+                <div className="text-sm text-white/80">Answer</div>
+                <div className="text-xl font-bold text-white">Revealed</div>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Debug Info */}
+        {debugMode && (
+          <div className="bg-black/20 backdrop-blur-sm rounded-lg p-4 mb-6 text-white text-sm font-mono">
+            <div>Room ID: {room.id}</div>
+            <div>Activation ID: {currentActivation?.id}</div>
+            <div>Activation Type: {currentActivation?.type}</div>
+            <div>Poll State: {pollState}</div>
+            <div>Show Answers: {showAnswers.toString()}</div>
+            <div>Total Votes: {totalVotes}</div>
+            <div>Network Status: {networkError ? 'Offline' : 'Online'}</div>
+            <button
+              onClick={() => setActivationRefreshCount(prev => prev + 1)}
+              className="mt-2 px-3 py-1 bg-white/10 rounded hover:bg-white/20"
+            >
+              <RefreshCw className="w-4 h-4 inline mr-2" />
+              Refresh Activation
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
