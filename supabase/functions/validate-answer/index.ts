@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { AnswerValidationRequest, AnswerValidationResponse } from "../_shared/types.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 
 // Create a Supabase client with the service role key
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
@@ -9,13 +9,6 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 serve(async (req) => {
   try {
-    // CORS headers
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-    };
-
     // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
       return new Response(null, {
@@ -25,7 +18,7 @@ serve(async (req) => {
     }
 
     // Parse request body
-    const requestData: AnswerValidationRequest = await req.json();
+    const requestData = await req.json();
     const { activationId, answer } = requestData;
 
     if (!activationId || answer === undefined) {
@@ -66,7 +59,7 @@ serve(async (req) => {
     }
 
     // Prepare response
-    const response: AnswerValidationResponse = {
+    const response = {
       isCorrect,
       activationType: activation.type
     };
@@ -82,7 +75,7 @@ serve(async (req) => {
     console.error("Error validating answer:", error);
     
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ isValid: false, error: "Internal server error" }),
       {
         headers: { "Content-Type": "application/json" },
         status: 500,

@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { PointCalculationRequest, PointCalculationResponse } from "../_shared/types.ts";
+import { AnswerRequest, AnswerResponse } from "../_shared/types.ts";
 import { calculatePoints } from "../_shared/utils.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 
 // Create a Supabase client with the service role key
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
@@ -10,13 +11,6 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 serve(async (req) => {
   try {
-    // CORS headers
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-    };
-
     // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
       return new Response(null, {
@@ -26,10 +20,10 @@ serve(async (req) => {
     }
 
     // Parse request body
-    const requestData: PointCalculationRequest = await req.json();
-    const { activationId, playerId, timeTakenMs, isCorrect } = requestData;
+    const requestData: AnswerRequest = await req.json();
+    const { activationId, playerId, playerName, answer, timeTakenMs, roomId } = requestData;
 
-    if (!activationId || !playerId) {
+    if (!activationId || !playerId || !roomId) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
         {
@@ -37,6 +31,33 @@ serve(async (req) => {
           status: 400,
         }
       );
+    }
+    
+    // Get activation details to determine correct answer
+    const { data: activation, error: activationError } = await supabase
+      .from("activations")
+      .select("type, correct_answer, exact_answer")
+      .eq("id", activationId)
+      .single();
+      
+    if (activationError) {
+      return new Response(
+        JSON.stringify({ error: "Failed to fetch activation details" }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
+    
+    // Validate answer based on activation type
+    let isCorrect = false;
+    
+    if (activation.type === "multiple_choice" && activation.correct_answer) {
+      isCorrect = answer === activation.correct_answer;
+    } else if (activation.type === "text_answer" && activation.exact_answer) {
+      // Case-insensitive comparison for text answers
+      isCorrect = answer.toLowerCase().trim() === activation.exact_answer.toLowerCase().trim();
     }
 
     // Convert time taken to seconds
@@ -109,8 +130,9 @@ serve(async (req) => {
     }
 
     // Prepare response
-    const response: PointCalculationResponse = {
+    const response: AnswerResponse = {
       success: true,
+      isCorrect,
       pointsAwarded,
       newScore,
       stats: {
@@ -132,9 +154,9 @@ serve(async (req) => {
     console.error("Error calculating points:", error);
     
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ success: false, error: "Internal server error" }),
       {
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
       }
     );
