@@ -526,35 +526,6 @@ export default function Results() {
       )
       .subscribe();
       
-    // Subscribe to poll_votes table directly
-    const pollVotesChannel = supabase
-      .channel(`poll_votes_direct_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'poll_votes'
-        },
-        async (payload) => {
-          // Check if this vote is for our current activation
-          if (currentActivationIdRef.current && 
-              payload.new && 
-              payload.new.activation_id === currentActivationIdRef.current) {
-            
-            console.log('Direct poll vote detected:', payload.new);
-            
-            // Refresh votes for the current activation
-            if (currentActivation?.type === 'poll') {
-              console.log('Refreshing poll votes after direct detection');
-              const votes = await getPollVotes(currentActivationIdRef.current);
-              setPollVotes(votes);
-              setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-            }
-          }
-        }
-      )
-      .subscribe();
       
     // Return cleanup function
     return () => {
@@ -564,7 +535,6 @@ export default function Results() {
       if (activationChannelRef.current) {
         activationChannelRef.current.unsubscribe();
       }
-      pollVotesChannel.unsubscribe();
       playerChannel.unsubscribe();
     };
   };
