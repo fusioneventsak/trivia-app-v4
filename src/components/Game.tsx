@@ -4,7 +4,7 @@ import CountdownTimer from './ui/CountdownTimer';
 import { PollDisplay } from './ui/PollDisplay';
 import { PointAnimation } from './ui/PointAnimation';
 import { PointsDisplay } from './ui/PointsDisplay';
-import { LeaderboardItem } from './ui/LeaderboardItem';
+import LeaderboardItem from './ui/LeaderboardItem';
 import { getStorageUrl } from '../lib/utils';
 
 export function Game({
