@@ -5,6 +5,7 @@ import { CheckCircle } from 'lucide-react';
 interface PollOption {
   text: string;
   id?: string;
+  id?: string;
   media_type?: 'none' | 'image' | 'gif';
   media_url?: string;
 }
@@ -65,6 +66,16 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
     ];
 
     return baseColors[index % baseColors.length];
+  };
+
+  // Helper to get vote count for an option
+  const getVoteCount = (option: PollOption): number => {
+    // First try by option ID if available
+    if (option.id && votes[option.id] !== undefined) {
+      return votes[option.id];
+    }
+    // Fall back to option text
+    return votes[option.text] || 0;
   };
 
   // Helper to get vote count for an option
