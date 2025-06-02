@@ -9,10 +9,10 @@ export type PollState = 'pending' | 'voting' | 'closed';
 export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
   try {
     const { data, error } = await supabase
-      .rpc('get_poll_results', { p_activation_id: activationId });
+      .rpc('get_poll_votes', { p_activation_id: activationId });
       
     if (error) {
-      console.error('Error fetching poll results:', error);
+      console.error('Error fetching poll votes:', error);
       return {};
     }
     
@@ -39,8 +39,14 @@ export const subscribeToPollVotes = (
 ): (() => void) => {
   console.log('Setting up poll subscription for activation:', activationId);
   
+  // Function to fetch current votes
+  const fetchVotes = async () => {
+    const votes = await getPollVotes(activationId);
+    onVotesUpdate(votes);
+  };
+  
   // Initial fetch
-  getPollVotes(activationId).then(votes => onVotesUpdate(votes));
+  fetchVotes();
   
   // Subscribe to poll_votes changes
   const votesChannel = supabase
@@ -53,10 +59,9 @@ export const subscribeToPollVotes = (
         table: 'poll_votes',
         filter: `activation_id=eq.${activationId}`
       },
-      async (payload) => {
+      (payload) => {
         console.log('Poll vote change detected:', payload);
-        const votes = await getPollVotes(activationId);
-        onVotesUpdate(votes);
+        fetchVotes();
       }
     )
     .subscribe();
