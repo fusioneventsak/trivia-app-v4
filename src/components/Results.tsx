@@ -14,6 +14,16 @@ import QRCodeDisplay from './ui/QRCodeDisplay';
 import { hasPlayerVoted, getPollVotes } from '../lib/point-distribution';
 import { subscribeToPollVotes } from '../lib/realtime';
 
+// Helper function to extract YouTube video ID from various URL formats
+const extractYoutubeVideoId = (url: string): string | null => {
+  if (!url) return null;
+  
+  // Handle different YouTube URL formats
+  const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[7].length === 11) ? match[7] : null;
+};
+
 interface Player {
   id: string;
   name: string;
@@ -88,9 +98,7 @@ export default function Results() {
   const [previousRankings, setPreviousRankings] = useState<{[key: string]: number}>({});
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
-  const gameSessionChannelRef = useRef<any>(null);
-  const activationChannelRef = useRef<any>(null);
-  const playerChannelRef = useRef<any>(null);
+  const [activationRefreshCount, setActivationRefreshCount] = useState(0);
   
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -203,9 +211,16 @@ export default function Results() {
     
     // Clean up function
     return () => {
-      cleanupSubscriptions();
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      if (pollSubscriptionRef.current) {
+        pollSubscriptionRef.current();
+        pollSubscriptionRef.current = null;
+      }
     };
-  }, [code, debugMode]);
+  }, [code, debugMode, activationRefreshCount]);
   
   // Handle activation change
   const handleActivationChange = async (activation: Activation | null) => {
@@ -344,66 +359,38 @@ export default function Results() {
     }
   };
   
-  // Clean up all subscriptions
-  const cleanupSubscriptions = () => {
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-    
-    if (pollSubscriptionRef.current) {
-      pollSubscriptionRef.current();
-      pollSubscriptionRef.current = null;
-    }
-    
-    if (gameSessionChannelRef.current) {
-      gameSessionChannelRef.current.unsubscribe();
-      gameSessionChannelRef.current = null;
-    }
-    
-    if (activationChannelRef.current) {
-      activationChannelRef.current.unsubscribe();
-      activationChannelRef.current = null;
-    }
-    
-    if (playerChannelRef.current) {
-      playerChannelRef.current.unsubscribe();
-      playerChannelRef.current = null;
-    }
-  };
-  
   // Set up real-time subscriptions
   const setupRealtimeSubscriptions = (roomId: string) => {
     // Subscribe to game session changes
-    gameSessionChannelRef.current = supabase
+    const gameSession = supabase.channel(`game_session_changes`)
       .channel(`game_session_${roomId}`)
       .on('postgres_changes', {
-        event: '*',
+        event: '*', 
         schema: 'public',
         table: 'game_sessions',
         filter: `room_id=eq.${roomId}`
       }, async (payload) => {
         console.log('Game session change detected:', payload);
         
-        if (payload.eventType === 'UPDATE') {
-          const newActivationId = payload.new?.current_activation;
-          const oldActivationId = payload.old?.current_activation;
-          
-          if (newActivationId !== oldActivationId) {
-            if (newActivationId) {
-              // Fetch the new activation
-              const { data: activation, error } = await supabase
-                .from('activations')
-                .select('*')
-                .eq('id', newActivationId)
-                .single();
-              
-              if (!error && activation) {
-                await handleActivationChange(activation);
-              }
-            } else {
-              // No current activation
-              await handleActivationChange(null);
+        if (payload.new && payload.old && payload.new.current_activation !== payload.old.current_activation) {
+          if (payload.new?.current_activation) {
+            // Refresh the activation data
+            setActivationRefreshCount(count => count + 1);
+          } else {
+            // Clear current activation
+            setPreviousActivationType(currentActivation?.type || null);
+            setCurrentActivation(null);
+            
+            // Clear any active timer
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+            
+            // Unsubscribe from poll channel if active
+            if (pollSubscriptionRef.current) {
+              pollSubscriptionRef.current();
+              pollSubscriptionRef.current = null;
             }
           }
         }
@@ -427,7 +414,7 @@ export default function Results() {
       .subscribe();
 
     // Subscribe to player changes
-    playerChannelRef.current = supabase
+    const playerChannel = supabase.channel(`players_${roomId}`)
       .channel(`players_${roomId}`)
       .on('postgres_changes', {
         event: '*',
@@ -457,6 +444,12 @@ export default function Results() {
         }
       })
       .subscribe();
+      
+    // Return cleanup function
+    return () => {
+      gameSession.unsubscribe();
+      playerChannel.unsubscribe();
+    };
   };
 
   const initPollVotes = async (activation: Activation) => {
@@ -479,7 +472,19 @@ export default function Results() {
   };
   
   const renderMediaContent = () => {
-    if (!currentActivation?.media_url || currentActivation.media_type === 'none') return null;
+    if (!currentActivation?.media_url || currentActivation.media_type === 'none') {
+      if (debugMode) {
+        console.log('No media to render:', currentActivation?.media_type, currentActivation?.media_url);
+      }
+      return null;
+    }
+    
+    if (debugMode) {
+      console.log('Rendering media:', {
+        type: currentActivation.media_type,
+        url: currentActivation.media_url
+      });
+    }
     
     switch (currentActivation.media_type) {
       case 'image':
@@ -499,7 +504,12 @@ export default function Results() {
           </div>
         );
       case 'youtube':
-        const videoId = currentActivation.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/)?.[1];
+        const videoId = extractYoutubeVideoId(currentActivation.media_url);
+        
+        if (debugMode) {
+          console.log('YouTube video ID:', videoId);
+        }
+        
         return videoId ? (
           <div className="flex justify-center items-center mb-4">
             <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
@@ -512,8 +522,15 @@ export default function Results() {
               </div>
             </div>
           </div>
-        ) : null;
+        ) : (
+          <div className="p-3 bg-red-100/20 text-white rounded-lg text-center mb-4">
+            Invalid YouTube URL: {currentActivation.media_url}
+          </div>
+        );
       default:
+        if (debugMode) {
+          console.log('Unknown media type:', currentActivation.media_type);
+        }
         return null;
     }
   };
@@ -808,6 +825,8 @@ export default function Results() {
             <div>Current Activation: {currentActivation?.id || 'None'}</div>
             <div>Activation Type: {currentActivation?.type || 'N/A'}</div>
             <div>Poll State: {pollState}</div>
+            <div>Media Type: {currentActivation?.media_type || 'None'}</div>
+            <div>Media URL: {currentActivation?.media_url || 'None'}</div>
             <div>Poll Total Votes: {totalVotes}</div>
             <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
             <div>Show Answers: {showAnswers ? 'true' : 'false'}</div>
@@ -831,6 +850,12 @@ export default function Results() {
                 className="px-2 py-1 bg-blue-800 text-blue-200 rounded"
               >
                 Log State
+              </button>
+              <button
+                onClick={() => setActivationRefreshCount(c => c + 1)}
+                className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
+              >
+                Refresh Activation
               </button>
             </div>
           </div>
