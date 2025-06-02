@@ -1,38 +1,3 @@
-export interface AnswerRequest {
-  activationId: string;
-  roomId: string;
-  playerId: string;
-  playerName: string;
-  answer: string;
-  timeTakenMs: number;
-}
-
-export interface AnswerResponse {
-  success: boolean;
-  isCorrect: boolean;
-  pointsAwarded: number;
-  newScore: number;
-  error?: string;
-  stats?: {
-    totalPoints: number;
-    correctAnswers: number;
-    totalAnswers: number;
-    averageResponseTimeMs: number;
-  };
-}
-
-export interface PointCalculationConfig {
-  MAX_POINTS: number;
-  TIME_DEDUCTION_PER_SECOND: number;
-  MIN_POINTS: number;
-  INCORRECT_POINTS: number;
-}
-
-export interface RateLimitConfig {
-  maxAnswersPerMinute: number;
-  maxVotesPerPoll: number;
-}
-
 // Point calculation request/response types
 export interface PointCalculationRequest {
   activationId: string;
