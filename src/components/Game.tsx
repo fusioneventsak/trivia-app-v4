@@ -16,6 +16,7 @@ import { getStorageUrl } from '../lib/utils';
 
 interface Option {
   text: string;
+  id?: string;
   media_type?: 'none' | 'image' | 'gif';
   media_url?: string;
 }
@@ -47,6 +48,7 @@ export default function Game() {
   const { currentPlayerId, addPlayer, updatePlayerScore, getCurrentPlayer } = useGameStore();
   const [currentActivation, setCurrentActivation] = useState<Activation | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string>('');
+  const [selectedOptionId, setSelectedOptionId] = useState<string>('');
   const [textAnswer, setTextAnswer] = useState('');
   const [hasAnswered, setHasAnswered] = useState(false);
   const [showResult, setShowResult] = useState(false);
@@ -55,6 +57,7 @@ export default function Game() {
   const [error, setError] = useState<string | null>(null);
   const [room, setRoom] = useState<any>(null);
   const [pollVotes, setPollVotes] = useState<PollVotes>({});
+  const [pollVotesByText, setPollVotesByText] = useState<PollVotes>({});
   const [totalVotes, setTotalVotes] = useState(0);
   const [pollVoted, setPollVoted] = useState(false);
   const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
@@ -64,7 +67,25 @@ export default function Game() {
   const [playerScore, setPlayerScore] = useState<number>(0);
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [showAnswers, setShowAnswers] = useState(true);
-  
+
+  // Convert poll votes from option IDs to option texts for display
+  const convertVotesToTextBased = (votes: PollVotes, options?: Option[]): PollVotes => {
+    if (!options) return {};
+    
+    const textBasedVotes: PollVotes = {};
+    
+    // For each option, find its votes by ID
+    options.forEach(option => {
+      if (option.id && votes[option.id]) {
+        textBasedVotes[option.text] = votes[option.id];
+      } else {
+        textBasedVotes[option.text] = 0;
+      }
+    });
+    
+    return textBasedVotes;
+  };
+
   // Check if player exists
   useEffect(() => {
     if (!currentPlayerId) {
@@ -227,6 +248,9 @@ export default function Game() {
           data.id,
           (votes) => {
             setPollVotes(votes);
+            // Convert to text-based votes for display
+            const textVotes = convertVotesToTextBased(votes, data.options);
+            setPollVotesByText(textVotes);
             setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
           },
           (state) => {
@@ -248,6 +272,7 @@ export default function Game() {
   
   const resetAnswerState = () => {
     setSelectedAnswer('');
+    setSelectedOptionId('');
     setTextAnswer('');
     setHasAnswered(false);
     setShowResult(false);
@@ -256,10 +281,11 @@ export default function Game() {
     setResponseStartTime(null);
   };
   
-  const handleMultipleChoiceAnswer = async (answer: string) => {
+  const handleMultipleChoiceAnswer = async (answer: string, optionId?: string) => {
     if (hasAnswered || !currentActivation || !currentPlayerId) return;
     
     setSelectedAnswer(answer);
+    if (optionId) setSelectedOptionId(optionId);
     setHasAnswered(true);
     
     const responseTime = responseStartTime ? Date.now() - responseStartTime : 0;
@@ -331,15 +357,24 @@ export default function Game() {
     setShowResult(true);
   };
   
-  const handlePollVote = async (answer: string) => {
+  const handlePollVote = async (answer: string, optionId?: string) => {
     if (pollVoted || pollState === 'closed' || !currentActivation || !currentPlayerId) return;
     
+    // Ensure we have an option ID to submit
+    if (!optionId) {
+      // Try to find the option ID from the text
+      const option = currentActivation.options?.find(opt => opt.text === answer);
+      if (!option?.id) {
+        setError('Invalid option selected');
+        return;
+      }
+      optionId = option.id;
+    }
+    
     setSelectedAnswer(answer);
+    setSelectedOptionId(optionId);
     
-    // Find the matching option to get its ID
-    const selectedOption = currentActivation.options?.find(opt => opt.text === answer);
-    
-    const result = await submitPollVote(currentActivation.id, currentPlayerId, answer);
+    const result = await submitPollVote(currentActivation.id, currentPlayerId, optionId);
     
     if (result.success) {
       setPollVoted(true);
@@ -549,7 +584,7 @@ export default function Game() {
                       return (
                         <button
                           key={index}
-                          onClick={() => handleMultipleChoiceAnswer(option.text)}
+                          onClick={() => handleMultipleChoiceAnswer(option.text, option.id)}
                           disabled={hasAnswered}
                           className={`p-4 rounded-lg transition transform hover:scale-105 ${
                             hasAnswered
@@ -650,7 +685,7 @@ export default function Game() {
                         {currentActivation.options?.map((option, index) => (
                           <button
                             key={index}
-                            onClick={() => handlePollVote(option.text)}
+                            onClick={() => handlePollVote(option.text, option.id)}
                             className="p-4 rounded-lg bg-white/20 hover:bg-white/30 transition transform hover:scale-105"
                           >
                             <div className="flex items-center gap-3">
@@ -672,7 +707,7 @@ export default function Game() {
                     ) : (
                       <PollDisplay
                         options={currentActivation.options || []}
-                        votes={pollVotes}
+                        votes={pollVotesByText}
                         totalVotes={totalVotes}
                         displayType={currentActivation.poll_display_type || 'bar'}
                         selectedAnswer={selectedAnswer}
