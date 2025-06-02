@@ -7,7 +7,7 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
-    port: 5173,
+    port: 3000,
     strictPort: true,
     host: true,
     headers: {
@@ -16,7 +16,7 @@ export default defineConfig({
     }
   },
   preview: {
-    port: 5173,
+    port: 3000,
     strictPort: true,
     host: true,
     headers: {
