@@ -9,7 +9,7 @@ export type PollState = 'pending' | 'voting' | 'closed';
 export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
   try {
     const { data, error } = await supabase
-      .rpc('get_poll_votes', { p_activation_id: activationId });
+      .rpc('get_poll_votes', { activation_id: activationId });
       
     if (error) {
       console.error('Error fetching poll votes:', error);
