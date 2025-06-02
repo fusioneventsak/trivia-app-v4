@@ -99,6 +99,7 @@ export default function Results() {
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
   const [activationRefreshCount, setActivationRefreshCount] = useState(0);
+  const activationChannelRef = useRef<any>(null);
   
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -362,7 +363,7 @@ export default function Results() {
   // Set up real-time subscriptions
   const setupRealtimeSubscriptions = (roomId: string) => {
     // Subscribe to game session changes
-    const gameSession = supabase.channel(`game_session_changes`)
+    const gameSession = supabase
       .channel(`game_session_${roomId}`)
       .on('postgres_changes', {
         event: '*', 
@@ -414,7 +415,7 @@ export default function Results() {
       .subscribe();
 
     // Subscribe to player changes
-    const playerChannel = supabase.channel(`players_${roomId}`)
+    const playerChannel = supabase
       .channel(`players_${roomId}`)
       .on('postgres_changes', {
         event: '*',
@@ -449,6 +450,9 @@ export default function Results() {
     return () => {
       gameSession.unsubscribe();
       playerChannel.unsubscribe();
+      if (activationChannelRef.current) {
+        activationChannelRef.current.unsubscribe();
+      }
     };
   };
 
