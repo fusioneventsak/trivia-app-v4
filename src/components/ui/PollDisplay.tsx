@@ -4,6 +4,7 @@ import { CheckCircle } from 'lucide-react';
 
 interface PollOption {
   text: string;
+  id?: string;
   media_type?: 'none' | 'image' | 'gif';
   media_url?: string;
 }
@@ -66,6 +67,16 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
     return baseColors[index % baseColors.length];
   };
 
+  // Helper to get vote count for an option
+  const getVoteCount = (option: PollOption): number => {
+    // First try by option ID if available
+    if (option.id && votes[option.id] !== undefined) {
+      return votes[option.id];
+    }
+    // Fall back to option text
+    return votes[option.text] || 0;
+  };
+
   // Render pie chart
   if (displayType === 'pie') {
     return (
@@ -79,7 +90,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
           {/* Simple pie chart representation */}
           <div className="w-full h-full rounded-full overflow-hidden bg-white/20 flex">
             {options.map((option, index) => {
-              const voteCount = votes[option.text] || 0;
+              const voteCount = getVoteCount(option);
               const percentage = totalVotes > 0 ? (voteCount / totalVotes * 100) : 0;
               return percentage > 0 ? (
                 <div 
@@ -96,7 +107,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
           
           <div className="mt-4 space-y-2">
             {options.map((option, index) => {
-              const voteCount = votes[option.text] || 0;
+              const voteCount = getVoteCount(option);
               const percentage = totalVotes > 0 ? (voteCount / totalVotes * 100).toFixed(1) : '0.0';
               const isSelected = option.text === selectedAnswer;
               
@@ -145,7 +156,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
         {/* Vertical bars layout */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 h-48">
           {options.map((option, index) => {
-            const voteCount = votes[option.text] || 0;
+            const voteCount = getVoteCount(option);
             const percentage = totalVotes > 0 ? (voteCount / totalVotes * 100) : 0;
             const color = getColorForIndex(index);
             const isSelected = option.text === selectedAnswer;
@@ -215,7 +226,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
       
       <div className="space-y-4">
         {options.map((option, index) => {
-          const voteCount = votes[option.text] || 0;
+          const voteCount = getVoteCount(option);
           const percentage = totalVotes > 0 ? (voteCount / totalVotes * 100) : 0;
           const isSelected = option.text === selectedAnswer;
           

@@ -336,6 +336,9 @@ export default function Game() {
     
     setSelectedAnswer(answer);
     
+    // Find the matching option to get its ID
+    const selectedOption = currentActivation.options?.find(opt => opt.text === answer);
+    
     const result = await submitPollVote(currentActivation.id, currentPlayerId, answer);
     
     if (result.success) {

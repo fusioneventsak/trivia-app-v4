@@ -7,21 +7,63 @@ interface PollVotes {
 // Get poll votes for an activation
 export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
   try {
+    console.log(`Fetching poll votes for activation ${activationId}`);
+    
+    // First get the activation to get the options
+    const { data: activation, error: actError } = await supabase
+      .from('activations')
+      .select('options')
+      .eq('id', activationId)
+      .single();
+    
+    if (actError) {
+      console.error('Error fetching activation options:', actError);
+      return {};
+    }
+    
+    // Initialize votes object with zeros for all options
+    const votes: PollVotes = {};
+    if (activation?.options) {
+      activation.options.forEach((option: any) => {
+        if (option.id) {
+          votes[option.id] = 0;
+        } else if (option.text) {
+          // Fallback to using text as key if no ID
+          votes[option.text] = 0;
+        }
+      });
+    }
+    
+    // Get all votes from the poll_votes table
     const { data, error } = await supabase
       .from('poll_votes')
-      .select('option_id')
+      .select('option_id, option_text')
       .eq('activation_id', activationId);
       
     if (error) {
       console.error('Error fetching poll votes:', error);
-      throw error;
+      return votes; // Return initialized zeros
     }
     
-    // Count votes by option_id
-    const votes: PollVotes = {};
+    // Count votes
     data?.forEach(vote => {
-      if (vote.option_id) {
+      // Prefer option_id if available
+      if (vote.option_id && votes[vote.option_id] !== undefined) {
         votes[vote.option_id] = (votes[vote.option_id] || 0) + 1;
+      } 
+      // Fall back to option_text for backward compatibility
+      else if (vote.option_text) {
+        // Try to find the option ID that matches this text
+        const matchingOption = activation?.options?.find(
+          (opt: any) => opt.text === vote.option_text
+        );
+        
+        if (matchingOption?.id) {
+          votes[matchingOption.id] = (votes[matchingOption.id] || 0) + 1;
+        } else {
+          // Last resort: use the text as the key
+          votes[vote.option_text] = (votes[vote.option_text] || 0) + 1;
+        }
       }
     });
     
@@ -113,7 +155,7 @@ export const checkIfPlayerVoted = async (
 export const submitPollVote = async (
   activationId: string,
   playerId: string,
-  optionId: string
+  optionText: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
     // First check if player already voted
@@ -122,13 +164,37 @@ export const submitPollVote = async (
       return { success: false, error: 'You have already voted in this poll' };
     }
     
+    // Get the activation to find the option ID
+    const { data: activation, error: actError } = await supabase
+      .from('activations')
+      .select('options')
+      .eq('id', activationId)
+      .single();
+      
+    if (actError) {
+      console.error('Error fetching activation:', actError);
+      return { success: false, error: 'Failed to fetch activation details' };
+    }
+    
+    // Find the option ID that matches the text
+    let optionId: string | null = null;
+    if (activation?.options) {
+      const matchingOption = activation.options.find(
+        (opt: any) => opt.text === optionText
+      );
+      if (matchingOption?.id) {
+        optionId = matchingOption.id;
+      }
+    }
+    
     // Submit the vote
     const { error } = await supabase
       .from('poll_votes')
       .insert({
         activation_id: activationId,
         player_id: playerId,
-        option_id: optionId
+        option_id: optionId,
+        option_text: optionText
       });
       
     if (error) {
