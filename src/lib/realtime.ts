@@ -81,6 +81,8 @@ export const subscribeToPollVotes = (
   onVotesUpdate: (votes: PollVotes) => void,
   onPollStateChange?: (state: 'pending' | 'voting' | 'closed') => void
 ): (() => void) => {
+  console.log(`Setting up poll votes subscription for activation ${activationId}`);
+  
   // Initial fetch
   const fetchVotes = async () => {
     const votes = await getPollVotes(activationId);
@@ -102,7 +104,9 @@ export const subscribeToPollVotes = (
       const votes = await getPollVotes(activationId);
       onVotesUpdate(votes);
     })
-    .subscribe();
+    .subscribe((status) => {
+      console.log(`Poll votes subscription status for ${activationId}: ${status}`);
+    });
     
   // Subscribe to activation changes (for poll state)
   const activationChannel = supabase
@@ -118,10 +122,13 @@ export const subscribeToPollVotes = (
         onPollStateChange(payload.new.poll_state);
       }
     })
-    .subscribe();
+    .subscribe((status) => {
+      console.log(`Poll state subscription status for ${activationId}: ${status}`);
+    });
   
   // Return cleanup function
   return () => {
+    console.log(`Cleaning up poll subscriptions for activation ${activationId}`);
     votesChannel.unsubscribe();
     activationChannel.unsubscribe();
   };
