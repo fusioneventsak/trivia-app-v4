@@ -835,6 +835,7 @@ export default function Results() {
                                 />
                               </div>
                             )}
+                            
                             <div className="flex-1 font-medium text-white">{option.text}</div>
                           </div>
                           
@@ -890,7 +891,7 @@ export default function Results() {
         ) : (
           <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6 text-center">
             <h2 className="text-xl font-semibold text-white mb-4">Waiting for next question...</h2>
-            <QRCodeDisplay url={getJoinUrl()} theme={activeTheme} />
+            <QRCodeDisplay value={getJoinUrl()} theme={activeTheme} />
           </div>
         )}
         
