@@ -107,12 +107,13 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                   <div className="flex items-center">
                     {isSelected && <CheckCircle className="w-3 h-3 mr-1 text-green-400" />}
                     {option.media_type !== 'none' && option.media_url && (
-                      <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
+                      <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-1">
                         <img
                           src={option.media_url}
                           alt={option.text}
                           className="w-full h-full object-cover"
                           onError={(e) => {
+                            console.error('Error loading poll option image:', option.media_url);
                             e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                           }}
                         />
@@ -223,12 +224,13 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                   <div className="flex items-center">
                     {isSelected && <CheckCircle className="w-4 h-4 mr-1 text-green-400" />}
                     {option.media_type !== 'none' && option.media_url && (
-                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-2">
+                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-2 border border-white/30">
                         <img
                           src={option.media_url}
                           alt={option.text}
                           className="w-full h-full object-cover"
                           onError={(e) => {
+                            console.error('Error loading poll option image:', option.media_url);
                             e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                           }}
                         />
