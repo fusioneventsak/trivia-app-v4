@@ -88,7 +88,9 @@ export default function Results() {
   const [previousRankings, setPreviousRankings] = useState<{[key: string]: number}>({});
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
-  const [activationRefreshCount, setActivationRefreshCount] = useState(0);
+  const gameSessionChannelRef = useRef<any>(null);
+  const activationChannelRef = useRef<any>(null);
+  const playerChannelRef = useRef<any>(null);
   
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -159,27 +161,8 @@ export default function Results() {
         
         setPlayers(Array.isArray(playerData) ? playerData : []);
         
-        // Save previous rankings before updating
-        const prevRanks: {[key: string]: number} = {};
-        players.forEach((player, index) => {
-          prevRanks[player.id] = index + 1;
-        });
-        
-        // Only update previous rankings if we have current rankings
-        if (Object.keys(playerRankings).length > 0) {
-          setPreviousRankings(playerRankings);
-        }
-        
-        // Update current rankings
-        const newRanks: {[key: string]: number} = {};
-        if (Array.isArray(playerData)) {
-          playerData
-            .sort((a, b) => b.score - a.score)
-            .forEach((player, index) => {
-              newRanks[player.id] = index + 1;
-            });
-        }
-        setPlayerRankings(newRanks);
+        // Update rankings
+        updateRankings(playerData || []);
         
         // Get current activation
         const { data: sessionData, error: sessionError } = await supabase
@@ -199,52 +182,9 @@ export default function Results() {
               
           if (activationError) throw activationError;
           
-          // Store previous activation type before updating
-          setPreviousActivationType(currentActivation?.type || null);
-          
-          setCurrentActivation(activation);
-          
-          // If it's a poll, get initial votes and set up subscription
-          if (activation.type === 'poll' && activation.options) {
-            await initPollVotes(activation);
-            setPollState(activation.poll_state || 'pending');
-            
-            // Clean up previous subscription
-            if (pollSubscriptionRef.current) {
-              pollSubscriptionRef.current();
-            }
-            
-            // Set up new subscription
-            const cleanup = subscribeToPollVotes(
-              activation.id, 
-              (votes) => {
-                console.log("Results page poll votes updated:", votes);
-                setPollVotes(votes);
-                setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-              },
-              (state) => {
-                console.log("Results page poll state changed:", state);
-                setPollState(state);
-              }
-            );
-            pollSubscriptionRef.current = cleanup;
-          }
-          
-          // Setup timer if needed
-          if (activation.time_limit && activation.timer_started_at) {
-            setupTimer(activation);
-          } else {
-            setShowAnswers(activation.show_answers !== false);
-          }
+          await handleActivationChange(activation);
         } else {
-          setPreviousActivationType(currentActivation?.type || null);
-          setCurrentActivation(null);
-          
-          // Clean up poll subscription if it exists
-          if (pollSubscriptionRef.current) {
-            pollSubscriptionRef.current();
-            pollSubscriptionRef.current = null;
-          }
+          await handleActivationChange(null);
         }
         
         setLoading(false);
@@ -263,16 +203,89 @@ export default function Results() {
     
     // Clean up function
     return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
-      }
-      if (pollSubscriptionRef.current) {
-        pollSubscriptionRef.current();
-        pollSubscriptionRef.current = null;
-      }
+      cleanupSubscriptions();
     };
-  }, [code, debugMode, activationRefreshCount]);
+  }, [code, debugMode]);
+  
+  // Handle activation change
+  const handleActivationChange = async (activation: Activation | null) => {
+    if (debugMode) {
+      console.log('Handling activation change:', activation);
+    }
+    
+    // Store previous activation type before updating
+    setPreviousActivationType(currentActivation?.type || null);
+    
+    setCurrentActivation(activation);
+    
+    // Clean up any existing subscriptions
+    if (pollSubscriptionRef.current) {
+      pollSubscriptionRef.current();
+      pollSubscriptionRef.current = null;
+    }
+    
+    // Clear timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
+    if (activation) {
+      // If it's a poll, set up poll-specific subscriptions
+      if (activation.type === 'poll' && activation.options) {
+        await initPollVotes(activation);
+        setPollState(activation.poll_state || 'pending');
+        
+        // Set up poll subscription
+        const cleanup = subscribeToPollVotes(
+          activation.id, 
+          (votes) => {
+            console.log("Results page poll votes updated:", votes);
+            setPollVotes(votes);
+            setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+          },
+          (state) => {
+            console.log("Results page poll state changed:", state);
+            setPollState(state);
+          }
+        );
+        pollSubscriptionRef.current = cleanup;
+      }
+      
+      // Setup timer if needed
+      if (activation.time_limit && activation.timer_started_at) {
+        setupTimer(activation);
+      } else {
+        setShowAnswers(activation.show_answers !== false);
+      }
+    } else {
+      // No activation
+      setTimeRemaining(null);
+      setShowAnswers(false);
+      setPollVotes({});
+      setTotalVotes(0);
+      setPollState('pending');
+    }
+  };
+  
+  // Update player rankings
+  const updateRankings = (playerData: Player[]) => {
+    // Save previous rankings before updating
+    if (Object.keys(playerRankings).length > 0) {
+      setPreviousRankings(playerRankings);
+    }
+    
+    // Update current rankings
+    const newRanks: {[key: string]: number} = {};
+    if (Array.isArray(playerData)) {
+      playerData
+        .sort((a, b) => b.score - a.score)
+        .forEach((player, index) => {
+          newRanks[player.id] = index + 1;
+        });
+    }
+    setPlayerRankings(newRanks);
+  };
   
   // Setup timer when activation changes or timer starts
   const setupTimer = (activation: Activation) => {
@@ -331,10 +344,39 @@ export default function Results() {
     }
   };
   
+  // Clean up all subscriptions
+  const cleanupSubscriptions = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
+    if (pollSubscriptionRef.current) {
+      pollSubscriptionRef.current();
+      pollSubscriptionRef.current = null;
+    }
+    
+    if (gameSessionChannelRef.current) {
+      gameSessionChannelRef.current.unsubscribe();
+      gameSessionChannelRef.current = null;
+    }
+    
+    if (activationChannelRef.current) {
+      activationChannelRef.current.unsubscribe();
+      activationChannelRef.current = null;
+    }
+    
+    if (playerChannelRef.current) {
+      playerChannelRef.current.unsubscribe();
+      playerChannelRef.current = null;
+    }
+  };
+  
   // Set up real-time subscriptions
   const setupRealtimeSubscriptions = (roomId: string) => {
     // Subscribe to game session changes
-    const gameSession = supabase.channel(`game_session_changes`)
+    gameSessionChannelRef.current = supabase
+      .channel(`game_session_${roomId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -343,33 +385,50 @@ export default function Results() {
       }, async (payload) => {
         console.log('Game session change detected:', payload);
         
-        if (payload.new && payload.old && payload.new.current_activation !== payload.old.current_activation) {
-          if (payload.new?.current_activation) {
-            // Refresh the activation data
-            setActivationRefreshCount(count => count + 1);
-          } else {
-            // Clear current activation
-            setPreviousActivationType(currentActivation?.type || null);
-            setCurrentActivation(null);
-            
-            // Clear any active timer
-            if (timerIntervalRef.current) {
-              clearInterval(timerIntervalRef.current);
-              timerIntervalRef.current = null;
-            }
-            
-            // Unsubscribe from poll channel if active
-            if (pollSubscriptionRef.current) {
-              pollSubscriptionRef.current();
-              pollSubscriptionRef.current = null;
+        if (payload.eventType === 'UPDATE') {
+          const newActivationId = payload.new?.current_activation;
+          const oldActivationId = payload.old?.current_activation;
+          
+          if (newActivationId !== oldActivationId) {
+            if (newActivationId) {
+              // Fetch the new activation
+              const { data: activation, error } = await supabase
+                .from('activations')
+                .select('*')
+                .eq('id', newActivationId)
+                .single();
+              
+              if (!error && activation) {
+                await handleActivationChange(activation);
+              }
+            } else {
+              // No current activation
+              await handleActivationChange(null);
             }
           }
         }
       })
       .subscribe();
 
+    // Subscribe to activation updates (for poll state changes)
+    activationChannelRef.current = supabase
+      .channel(`activation_updates_${roomId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'activations',
+        filter: `room_id=eq.${roomId}`
+      }, async (payload) => {
+        if (currentActivation && payload.new.id === currentActivation.id) {
+          console.log('Current activation updated:', payload.new);
+          await handleActivationChange(payload.new);
+        }
+      })
+      .subscribe();
+
     // Subscribe to player changes
-    const playerChannel = supabase.channel(`players_${roomId}`)
+    playerChannelRef.current = supabase
+      .channel(`players_${roomId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -391,40 +450,13 @@ export default function Results() {
           // Ensure data is an array
           const playerData = Array.isArray(data) ? data : [];
           
-          // Save previous rankings before updating
-          const prevRanks: {[key: string]: number} = {};
-          // Check if players is an array before using forEach
-          if (Array.isArray(players)) {
-            players.forEach((player, index) => {
-              prevRanks[player.id] = index + 1;
-            });
-          }
-          
-          // Only update previous rankings if we have current rankings
-          if (Object.keys(playerRankings).length > 0) {
-            setPreviousRankings(playerRankings);
-          }
-          
-          // Update current rankings
-          const newRanks: {[key: string]: number} = {};
-          playerData.sort((a, b) => b.score - a.score)
-            .forEach((player, index) => {
-              newRanks[player.id] = index + 1;
-            });
-          setPlayerRankings(newRanks);
-          
+          updateRankings(playerData);
           setPlayers(playerData);
         } catch (error) {
           console.error('Error in player changes handler:', error);
         }
       })
       .subscribe();
-
-    // Return cleanup function
-    return () => {
-      gameSession.unsubscribe();
-      playerChannel.unsubscribe();
-    };
   };
 
   const initPollVotes = async (activation: Activation) => {
@@ -446,45 +478,6 @@ export default function Results() {
     setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
   };
   
-  const fetchPollVotes = async (activationId: string) => {
-    try {
-      console.log(`Fetching poll votes for activation ${activationId}`);
-      const { data, error } = await supabase
-        .from('analytics_events')
-        .select('event_data')
-        .eq('event_type', 'poll_vote')
-        .eq('activation_id', activationId);
-        
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        // Count votes
-        const votes: PollVotes = {};
-        const activation = currentActivation;
-        activation?.options?.forEach(option => {
-          votes[option.text] = 0;
-        });
-        
-        data.forEach(event => {
-          const answer = event.event_data?.answer;
-          if (answer && votes[answer] !== undefined) {
-            votes[answer]++;
-          }
-        });
-        
-        setPollVotes(votes);
-        setTotalVotes(data.length);
-        
-        if (debugMode) {
-          console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
-          console.log('Vote counts:', votes);
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching poll votes:', err);
-    }
-  };
-
   const renderMediaContent = () => {
     if (!currentActivation?.media_url || currentActivation.media_type === 'none') return null;
     
@@ -525,7 +518,7 @@ export default function Results() {
     }
   };
 
-  // Get active theme from room or default
+  // Get room theme or use default theme
   const activeTheme = room?.theme || globalTheme;
 
   // Add effect for confetti when leaderboard is activated
@@ -838,12 +831,6 @@ export default function Results() {
                 className="px-2 py-1 bg-blue-800 text-blue-200 rounded"
               >
                 Log State
-              </button>
-              <button
-                onClick={() => setActivationRefreshCount(c => c + 1)}
-                className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
-              >
-                Refresh Activation
               </button>
             </div>
           </div>
