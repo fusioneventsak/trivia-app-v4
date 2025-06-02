@@ -1,7 +1,42 @@
-Here's the fixed version with all missing closing brackets added:
+import { useState, useRef } from 'react';
+import { PlayCircle, WifiOff } from 'lucide-react';
+import { CountdownTimer } from './ui/CountdownTimer';
+import { PollDisplay } from './ui/PollDisplay';
+import { PointAnimation } from './ui/PointAnimation';
+import { PointsDisplay } from './ui/PointsDisplay';
+import { LeaderboardItem } from './ui/LeaderboardItem';
+import { getStorageUrl } from '../lib/utils';
 
-```javascript
-      return baseColors[index % baseColors.length];
+export function Game({
+  activeQuestion,
+  timeRemaining,
+  networkError,
+  hasAnswered,
+  selectedAnswer,
+  textAnswer,
+  setTextAnswer,
+  handleMultipleChoiceAnswer,
+  handleTextAnswerSubmit,
+  handlePollVote,
+  pollVotes,
+  totalVotes,
+  pollState,
+  pollVoted,
+  pollVoteCheckComplete,
+  pointsEarned,
+  getCurrentPlayer,
+  playerRankings,
+  previousRankings,
+  currentPlayerId,
+  otherPlayers,
+  showLeaderboard,
+  renderAnswerResult
+}) {
+  const leaderboardRef = useRef(null);
+
+  const getColorForIndex = (index: number, theme?: any) => {
+    if (theme?.colors?.length) {
+      return theme.colors[index % theme.colors.length];
     }
     
     // Fallback colors if no theme provided
@@ -169,4 +204,3 @@ Here's the fixed version with all missing closing brackets added:
     </div>
   );
 }
-```
