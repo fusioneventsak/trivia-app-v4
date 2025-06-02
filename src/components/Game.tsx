@@ -1,160 +1,704 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useGameStore } from '../store/gameStore';
+import { calculatePoints, getTimeBonus } from '../lib/point-calculator';
+import { CheckCircle, XCircle, Send, AlertCircle, Trophy, Clock, Users, ChevronRight, Loader2 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import CountdownTimer from './ui/CountdownTimer';
+import PointAnimation from './ui/PointAnimation';
+import PointsDisplay from './ui/PointsDisplay';
+import LeaderboardDisplay from './ui/LeaderboardDisplay';
+import { getPollVotes, subscribeToPollVotes, checkIfPlayerVoted, submitPollVote } from '../lib/realtime';
+import PollDisplay from './ui/PollDisplay';
+import confetti from 'canvas-confetti';
+import { getStorageUrl } from '../lib/utils';
 
-export interface PollVotes {
-  [optionText: string]: number;
+interface Option {
+  text: string;
+  media_type?: 'none' | 'image' | 'gif';
+  media_url?: string;
 }
 
-export type PollState = 'pending' | 'voting' | 'closed';
+interface Activation {
+  id: string;
+  type: 'multiple_choice' | 'text_answer' | 'poll' | 'leaderboard';
+  question: string;
+  options?: Option[];
+  correct_answer?: string;
+  exact_answer?: string;
+  media_type: 'none' | 'image' | 'youtube' | 'gif';
+  media_url?: string;
+  poll_display_type?: 'bar' | 'pie' | 'horizontal' | 'vertical';
+  poll_state?: 'pending' | 'voting' | 'closed';
+  time_limit?: number;
+  show_answers?: boolean;
+  timer_started_at?: string;
+}
 
-export const subscribeToPollVotes = (
-  activationId: string,
-  onVotesUpdate: (votes: PollVotes) => void,
-  onStateChange?: (state: PollState) => void
-): (() => void) => {
-  console.log('Setting up poll subscription for activation:', activationId);
+interface PollVotes {
+  [key: string]: number;
+}
+
+export default function Game() {
+  const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const { theme } = useTheme();
+  const { currentPlayerId, addPlayer, updatePlayerScore, getCurrentPlayer } = useGameStore();
+  const [currentActivation, setCurrentActivation] = useState<Activation | null>(null);
+  const [selectedAnswer, setSelectedAnswer] = useState<string>('');
+  const [textAnswer, setTextAnswer] = useState('');
+  const [hasAnswered, setHasAnswered] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [room, setRoom] = useState<any>(null);
+  const [pollVotes, setPollVotes] = useState<PollVotes>({});
+  const [totalVotes, setTotalVotes] = useState(0);
+  const [pollVoted, setPollVoted] = useState(false);
+  const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
+  const pollSubscriptionRef = useRef<(() => void) | null>(null);
+  const [pointsEarned, setPointsEarned] = useState<number>(0);
+  const [showPointAnimation, setShowPointAnimation] = useState(false);
+  const [playerScore, setPlayerScore] = useState<number>(0);
+  const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
+  const [showAnswers, setShowAnswers] = useState(true);
   
-  // Function to fetch current votes
-  const fetchVotes = async () => {
-    try {
-      const { data, error } = await supabase
-        .rpc('get_poll_results', { p_activation_id: activationId });
-        
-      if (error) {
-        console.error('Error fetching poll results:', error);
-        return;
-      }
-      
-      // Convert to PollVotes format
-      const votes: PollVotes = {};
-      if (data && Array.isArray(data)) {
-        data.forEach((row: any) => {
-          votes[row.option_text] = parseInt(row.vote_count) || 0;
-        });
-      }
-      
-      console.log('Fetched poll votes:', votes);
-      onVotesUpdate(votes);
-    } catch (err) {
-      console.error('Error in fetchVotes:', err);
+  // Check if player exists
+  useEffect(() => {
+    if (!currentPlayerId) {
+      navigate('/join', { 
+        state: { 
+          roomId, 
+          message: 'Please join the room first'
+        }
+      });
+      return;
     }
-  };
-  
-  // Initial fetch
-  fetchVotes();
-  
-  // Subscribe to poll_votes changes
-  const votesChannel = supabase
-    .channel(`poll_votes_${activationId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'poll_votes',
-        filter: `activation_id=eq.${activationId}`
-      },
-      (payload) => {
-        console.log('Poll vote change detected:', payload);
-        fetchVotes();
-      }
-    )
-    .subscribe();
     
-  // Subscribe to activation changes for poll state
-  let activationChannel: any = null;
-  if (onStateChange) {
-    activationChannel = supabase
-      .channel(`poll_state_${activationId}`)
-      .on(
-        'postgres_changes',
-        {
+    fetchRoomAndActivation();
+    
+    // Set up subscriptions
+    const setupSubscriptions = async () => {
+      if (!roomId) return;
+      
+      // Subscribe to game session changes
+      const gameSessionChannel = supabase
+        .channel(`game_session_${roomId}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'game_sessions',
+          filter: `room_id=eq.${roomId}`
+        }, async (payload) => {
+          console.log('Game session change:', payload);
+          if (payload.new?.current_activation) {
+            await fetchCurrentActivation(payload.new.current_activation);
+          } else {
+            setCurrentActivation(null);
+            resetAnswerState();
+          }
+        })
+        .subscribe();
+        
+      // Subscribe to player score updates
+      const playerChannel = supabase
+        .channel(`player_${currentPlayerId}`)
+        .on('postgres_changes', {
           event: 'UPDATE',
           schema: 'public',
-          table: 'activations',
-          filter: `id=eq.${activationId}`
-        },
-        (payload) => {
-          if (payload.new?.poll_state) {
-            console.log('Poll state changed to:', payload.new.poll_state);
-            onStateChange(payload.new.poll_state as PollState);
+          table: 'players',
+          filter: `id=eq.${currentPlayerId}`
+        }, (payload) => {
+          if (payload.new?.score !== undefined) {
+            setPlayerScore(payload.new.score);
+            updatePlayerScore(currentPlayerId, payload.new.score);
           }
-        }
-      )
-      .subscribe();
-  }
+        })
+        .subscribe();
+      
+      return () => {
+        gameSessionChannel.unsubscribe();
+        playerChannel.unsubscribe();
+      };
+    };
+    
+    const cleanup = setupSubscriptions();
+    
+    return () => {
+      cleanup.then(fn => fn && fn());
+      if (pollSubscriptionRef.current) {
+        pollSubscriptionRef.current();
+      }
+    };
+  }, [roomId, currentPlayerId, navigate]);
   
-  // Return cleanup function
-  return () => {
-    console.log('Cleaning up poll subscription for activation:', activationId);
-    votesChannel.unsubscribe();
-    if (activationChannel) {
-      activationChannel.unsubscribe();
-    }
-  };
-};
-
-export const checkIfPlayerVoted = async (
-  activationId: string,
-  playerId: string
-): Promise<boolean> => {
-  try {
-    const { data, error } = await supabase
-      .from('poll_votes')
-      .select('id')
-      .eq('activation_id', activationId)
-      .eq('player_id', playerId)
-      .maybeSingle();
+  const fetchRoomAndActivation = async () => {
+    try {
+      setLoading(true);
       
-    if (error) {
-      console.error('Error checking if player voted:', error);
-      return false;
-    }
-    
-    return !!data;
-  } catch (err) {
-    console.error('Error in checkIfPlayerVoted:', err);
-    return false;
-  }
-};
-
-export const submitPollVote = async (
-  activationId: string,
-  playerId: string,
-  optionText: string
-): Promise<{ success: boolean; error?: string }> => {
-  try {
-    // First check if player already voted
-    const hasVoted = await checkIfPlayerVoted(activationId, playerId);
-    if (hasVoted) {
-      return { success: false, error: 'You have already voted in this poll' };
-    }
-    
-    // Submit the vote
-    const { error } = await supabase
-      .from('poll_votes')
-      .insert({
-        activation_id: activationId,
-        player_id: playerId,
-        option_text: optionText
-      });
+      // Fetch room
+      const { data: roomData, error: roomError } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('id', roomId)
+        .single();
+        
+      if (roomError) throw roomError;
+      setRoom(roomData);
       
-    if (error) {
-      console.error('Error submitting poll vote:', error);
+      // Fetch current player data
+      const { data: playerData, error: playerError } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', currentPlayerId)
+        .single();
+        
+      if (playerError) throw playerError;
       
-      // Check for unique constraint violation
-      if (error.code === '23505') {
-        return { success: false, error: 'You have already voted in this poll' };
+      setPlayerScore(playerData.score || 0);
+      addPlayer(playerData);
+      
+      // Fetch current activation
+      const { data: sessionData } = await supabase
+        .from('game_sessions')
+        .select('current_activation')
+        .eq('room_id', roomId)
+        .single();
+        
+      if (sessionData?.current_activation) {
+        await fetchCurrentActivation(sessionData.current_activation);
       }
       
-      return { success: false, error: error.message };
+      setLoading(false);
+    } catch (err: any) {
+      console.error('Error fetching data:', err);
+      setError(err.message || 'Failed to load game data');
+      setLoading(false);
+    }
+  };
+  
+  const fetchCurrentActivation = async (activationId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('activations')
+        .select('*')
+        .eq('id', activationId)
+        .single();
+        
+      if (error) throw error;
+      
+      setCurrentActivation(data);
+      resetAnswerState();
+      
+      // Check if timer has already started
+      if (data.time_limit && data.timer_started_at) {
+        const startTime = new Date(data.timer_started_at).getTime();
+        const currentTime = new Date().getTime();
+        const elapsedMs = currentTime - startTime;
+        const totalTimeMs = data.time_limit * 1000;
+        
+        // If timer has already expired
+        if (elapsedMs >= totalTimeMs) {
+          setShowAnswers(data.show_answers !== false);
+        } else {
+          setShowAnswers(false);
+        }
+      } else {
+        setShowAnswers(data.show_answers !== false);
+      }
+      
+      // Check poll state
+      setPollState(data.poll_state || 'pending');
+      
+      // For polls, check if already voted and set up subscription
+      if (data.type === 'poll' && currentPlayerId) {
+        const hasVoted = await checkIfPlayerVoted(data.id, currentPlayerId);
+        setPollVoted(hasVoted);
+        
+        // Clean up previous subscription
+        if (pollSubscriptionRef.current) {
+          pollSubscriptionRef.current();
+        }
+        
+        // Set up new subscription
+        pollSubscriptionRef.current = subscribeToPollVotes(
+          data.id,
+          (votes) => {
+            setPollVotes(votes);
+            setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+          },
+          (state) => {
+            setPollState(state);
+          }
+        );
+      }
+      
+      // Start response timer for questions
+      if ((data.type === 'multiple_choice' || data.type === 'text_answer') && !hasAnswered) {
+        setResponseStartTime(Date.now());
+      }
+      
+    } catch (err: any) {
+      console.error('Error fetching activation:', err);
+      setError(err.message || 'Failed to load activation');
+    }
+  };
+  
+  const resetAnswerState = () => {
+    setSelectedAnswer('');
+    setTextAnswer('');
+    setHasAnswered(false);
+    setShowResult(false);
+    setIsCorrect(false);
+    setPollVoted(false);
+    setResponseStartTime(null);
+  };
+  
+  const handleMultipleChoiceAnswer = async (answer: string) => {
+    if (hasAnswered || !currentActivation || !currentPlayerId) return;
+    
+    setSelectedAnswer(answer);
+    setHasAnswered(true);
+    
+    const responseTime = responseStartTime ? Date.now() - responseStartTime : 0;
+    const isAnswerCorrect = answer === currentActivation.correct_answer;
+    setIsCorrect(isAnswerCorrect);
+    
+    if (isAnswerCorrect) {
+      // Calculate points with time bonus
+      const basePoints = 100;
+      const timeBonus = getTimeBonus(responseTime);
+      const totalPoints = calculatePoints(basePoints, timeBonus);
+      
+      setPointsEarned(totalPoints);
+      setShowPointAnimation(true);
+      
+      // Update player score
+      await updatePlayerScoreInDB(totalPoints, true, responseTime);
+      
+      // Fire confetti
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    } else {
+      // Update stats for incorrect answer
+      await updatePlayerScoreInDB(0, false, responseTime);
     }
     
-    console.log('Poll vote submitted successfully');
-    return { success: true };
-  } catch (err: any) {
-    console.error('Error in submitPollVote:', err);
-    return { success: false, error: err.message || 'Failed to submit vote' };
+    setShowResult(true);
+  };
+  
+  const handleTextAnswerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (hasAnswered || !currentActivation || !currentPlayerId || !textAnswer.trim()) return;
+    
+    setHasAnswered(true);
+    
+    const responseTime = responseStartTime ? Date.now() - responseStartTime : 0;
+    const userAnswer = textAnswer.trim().toLowerCase();
+    const correctAnswer = currentActivation.exact_answer?.trim().toLowerCase() || '';
+    const isAnswerCorrect = userAnswer === correctAnswer;
+    
+    setIsCorrect(isAnswerCorrect);
+    
+    if (isAnswerCorrect) {
+      // Calculate points with time bonus
+      const basePoints = 150; // Text answers worth more
+      const timeBonus = getTimeBonus(responseTime);
+      const totalPoints = calculatePoints(basePoints, timeBonus);
+      
+      setPointsEarned(totalPoints);
+      setShowPointAnimation(true);
+      
+      // Update player score
+      await updatePlayerScoreInDB(totalPoints, true, responseTime);
+      
+      // Fire confetti
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    } else {
+      // Update stats for incorrect answer
+      await updatePlayerScoreInDB(0, false, responseTime);
+    }
+    
+    setShowResult(true);
+  };
+  
+  const handlePollVote = async (answer: string) => {
+    if (pollVoted || pollState === 'closed' || !currentActivation || !currentPlayerId) return;
+    
+    setSelectedAnswer(answer);
+    
+    const result = await submitPollVote(currentActivation.id, currentPlayerId, answer);
+    
+    if (result.success) {
+      setPollVoted(true);
+      
+      // Award participation points for voting
+      const participationPoints = 25;
+      setPointsEarned(participationPoints);
+      setShowPointAnimation(true);
+      
+      await updatePlayerScoreInDB(participationPoints, false, 0);
+    } else {
+      setError(result.error || 'Failed to submit vote');
+    }
+  };
+  
+  const updatePlayerScoreInDB = async (points: number, isCorrect: boolean, responseTimeMs: number) => {
+    if (!currentPlayerId) return;
+    
+    try {
+      // Get current player data
+      const { data: playerData, error: fetchError } = await supabase
+        .from('players')
+        .select('score, stats')
+        .eq('id', currentPlayerId)
+        .single();
+        
+      if (fetchError) throw fetchError;
+      
+      const currentStats = playerData.stats || {
+        totalPoints: 0,
+        correctAnswers: 0,
+        totalAnswers: 0,
+        averageResponseTimeMs: 0
+      };
+      
+      // Calculate new average response time
+      const newTotalAnswers = currentStats.totalAnswers + 1;
+      const newAverageResponseTime = currentStats.totalAnswers === 0
+        ? responseTimeMs
+        : Math.round((currentStats.averageResponseTimeMs * currentStats.totalAnswers + responseTimeMs) / newTotalAnswers);
+      
+      // Update stats
+      const newStats = {
+        totalPoints: currentStats.totalPoints + points,
+        correctAnswers: currentStats.correctAnswers + (isCorrect ? 1 : 0),
+        totalAnswers: newTotalAnswers,
+        averageResponseTimeMs: newAverageResponseTime
+      };
+      
+      // Update player
+      const { error: updateError } = await supabase
+        .from('players')
+        .update({ 
+          score: playerData.score + points,
+          stats: newStats
+        })
+        .eq('id', currentPlayerId);
+        
+      if (updateError) throw updateError;
+      
+      // Update local state
+      setPlayerScore(playerData.score + points);
+      updatePlayerScore(currentPlayerId, playerData.score + points);
+      
+    } catch (err: any) {
+      console.error('Error updating player score:', err);
+      setError('Failed to update score');
+    }
+  };
+  
+  const renderMediaContent = () => {
+    if (!currentActivation?.media_url || currentActivation.media_type === 'none') return null;
+    
+    switch (currentActivation.media_type) {
+      case 'image':
+      case 'gif':
+        return (
+          <div className="flex justify-center items-center mb-6">
+            <img 
+              src={getStorageUrl(currentActivation.media_url)} 
+              alt="Question media" 
+              className="max-h-64 rounded-lg shadow-md"
+              onError={(e) => {
+                e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Not+Found';
+              }}
+            />
+          </div>
+        );
+      case 'youtube':
+        const videoId = currentActivation.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/)?.[1];
+        return videoId ? (
+          <div className="flex justify-center items-center mb-6">
+            <div className="w-full max-w-lg rounded-lg shadow-md overflow-hidden">
+              <div className="aspect-video">
+                <iframe
+                  className="w-full h-full"
+                  src={`https://www.youtube.com/embed/${videoId}`}
+                  allowFullScreen
+                />
+              </div>
+            </div>
+          </div>
+        ) : null;
+      default:
+        return null;
+    }
+  };
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-theme-gradient">
+        <div className="flex flex-col items-center">
+          <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
+          <p className="text-white text-xl">Loading game...</p>
+        </div>
+      </div>
+    );
   }
-};
-
-export default submitPollVote
+  
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-theme-gradient p-4">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Error</h1>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => navigate('/join')}
+            className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+          >
+            Back to Join
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  const roomTheme = room?.theme || theme;
+  
+  return (
+    <div 
+      className="min-h-screen p-4"
+      style={{ 
+        background: `linear-gradient(to bottom right, ${roomTheme.primary_color}, ${roomTheme.secondary_color})` 
+      }}
+    >
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            {room?.logo_url && (
+              <img 
+                src={room.logo_url} 
+                alt={room.name} 
+                className="h-10 w-auto object-contain mr-3"
+              />
+            )}
+            <h1 className="text-xl font-bold text-white">{room?.name}</h1>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <PointsDisplay 
+              points={playerScore} 
+              className="text-white" 
+              showIcon={true}
+            />
+            
+            {currentActivation?.time_limit && currentActivation?.timer_started_at && (
+              <CountdownTimer 
+                initialSeconds={currentActivation.time_limit}
+                startTime={currentActivation.timer_started_at}
+                variant="small"
+                onComplete={() => setShowAnswers(true)}
+              />
+            )}
+          </div>
+        </div>
+        
+        {/* Current Activation */}
+        {currentActivation ? (
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6">
+            {currentActivation.type === 'leaderboard' ? (
+              <LeaderboardDisplay 
+                roomId={roomId!}
+                maxPlayers={20}
+                autoRefresh={true}
+                refreshInterval={5000}
+                showStats={true}
+              />
+            ) : (
+              <>
+                <h2 className="text-2xl font-semibold text-white mb-6 text-center">
+                  {currentActivation.question}
+                </h2>
+                
+                {renderMediaContent()}
+                
+                {/* Multiple Choice */}
+                {currentActivation.type === 'multiple_choice' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {currentActivation.options?.map((option, index) => {
+                      const isSelected = option.text === selectedAnswer;
+                      const isCorrectAnswer = option.text === currentActivation.correct_answer;
+                      const showCorrect = hasAnswered && showAnswers && isCorrectAnswer;
+                      const showIncorrect = hasAnswered && showAnswers && isSelected && !isCorrectAnswer;
+                      
+                      return (
+                        <button
+                          key={index}
+                          onClick={() => handleMultipleChoiceAnswer(option.text)}
+                          disabled={hasAnswered}
+                          className={`p-4 rounded-lg transition transform hover:scale-105 ${
+                            hasAnswered
+                              ? showCorrect
+                                ? 'bg-green-400/30 ring-2 ring-green-400'
+                                : showIncorrect
+                                  ? 'bg-red-400/30 ring-2 ring-red-400'
+                                  : isSelected
+                                    ? 'bg-blue-400/30 ring-2 ring-blue-400'
+                                    : 'bg-white/20 opacity-50'
+                              : 'bg-white/20 hover:bg-white/30 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {option.media_type !== 'none' && option.media_url && (
+                              <img
+                                src={getStorageUrl(option.media_url)}
+                                alt={option.text}
+                                className="w-12 h-12 rounded-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                                }}
+                              />
+                            )}
+                            <span className="text-white font-medium text-lg">{option.text}</span>
+                          </div>
+                          
+                          {showCorrect && (
+                            <CheckCircle className="w-6 h-6 text-green-400 mt-2" />
+                          )}
+                          {showIncorrect && (
+                            <XCircle className="w-6 h-6 text-red-400 mt-2" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                
+                {/* Text Answer */}
+                {currentActivation.type === 'text_answer' && (
+                  <form onSubmit={handleTextAnswerSubmit} className="space-y-4">
+                    <input
+                      type="text"
+                      value={textAnswer}
+                      onChange={(e) => setTextAnswer(e.target.value)}
+                      placeholder="Type your answer here..."
+                      disabled={hasAnswered}
+                      className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50"
+                    />
+                    
+                    {!hasAnswered && (
+                      <button
+                        type="submit"
+                        disabled={!textAnswer.trim()}
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg transition disabled:opacity-50"
+                      >
+                        <Send className="w-5 h-5" />
+                        Submit Answer
+                      </button>
+                    )}
+                    
+                    {showResult && showAnswers && (
+                      <div className={`p-4 rounded-lg ${isCorrect ? 'bg-green-400/30' : 'bg-red-400/30'}`}>
+                        <div className="flex items-center gap-2 text-white">
+                          {isCorrect ? (
+                            <>
+                              <CheckCircle className="w-6 h-6" />
+                              <span className="font-semibold">Correct!</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-6 h-6" />
+                              <span className="font-semibold">Incorrect</span>
+                            </>
+                          )}
+                        </div>
+                        {!isCorrect && (
+                          <p className="text-white/80 mt-2">
+                            The correct answer was: <span className="font-medium">{currentActivation.exact_answer}</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </form>
+                )}
+                
+                {/* Poll */}
+                {currentActivation.type === 'poll' && (
+                  <div>
+                    {pollState === 'pending' ? (
+                      <div className="text-center text-white py-8">
+                        <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-xl">Waiting for voting to start...</p>
+                      </div>
+                    ) : pollState === 'voting' && !pollVoted ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {currentActivation.options?.map((option, index) => (
+                          <button
+                            key={index}
+                            onClick={() => handlePollVote(option.text)}
+                            className="p-4 rounded-lg bg-white/20 hover:bg-white/30 transition transform hover:scale-105"
+                          >
+                            <div className="flex items-center gap-3">
+                              {option.media_type !== 'none' && option.media_url && (
+                                <img
+                                  src={getStorageUrl(option.media_url)}
+                                  alt={option.text}
+                                  className="w-12 h-12 rounded-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                                  }}
+                                />
+                              )}
+                              <span className="text-white font-medium text-lg">{option.text}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <PollDisplay
+                        options={currentActivation.options || []}
+                        votes={pollVotes}
+                        totalVotes={totalVotes}
+                        displayType={currentActivation.poll_display_type || 'bar'}
+                        selectedAnswer={selectedAnswer}
+                        getStorageUrl={getStorageUrl}
+                        themeColors={roomTheme}
+                      />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-8 text-center">
+            <Trophy className="w-16 h-16 text-white/50 mx-auto mb-4" />
+            <p className="text-xl text-white">Waiting for the next question...</p>
+          </div>
+        )}
+        
+        {/* Point Animation */}
+        {showPointAnimation && (
+          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
+            <PointAnimation 
+              points={pointsEarned} 
+              className="text-4xl"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
