@@ -8,19 +8,23 @@ export type PollState = 'pending' | 'voting' | 'closed';
 
 export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
   try {
+    // Query poll votes directly from the table
     const { data, error } = await supabase
-      .rpc('get_poll_votes', { activation_id: activationId });
+      .from('poll_votes')
+      .select('option_text')
+      .eq('activation_id', activationId);
       
     if (error) {
       console.error('Error fetching poll votes:', error);
       return {};
     }
     
-    // Convert to PollVotes format
+    // Count votes for each option
     const votes: PollVotes = {};
     if (data && Array.isArray(data)) {
-      data.forEach((row: any) => {
-        votes[row.option_text] = parseInt(row.vote_count) || 0;
+      data.forEach((vote: any) => {
+        const optionText = vote.option_text;
+        votes[optionText] = (votes[optionText] || 0) + 1;
       });
     }
     
