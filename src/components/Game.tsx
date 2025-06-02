@@ -1,4 +1,3 @@
-// File: src/components/Game.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
@@ -12,9 +11,10 @@ import PointAnimation from './ui/PointAnimation';
 import PointsDisplay from './ui/PointsDisplay';
 import { calculatePoints, POINT_CONFIG } from '../lib/point-calculator';
 import LeaderboardItem from './ui/LeaderboardItem';
-import { distributePoints, hasPlayerAnswered, hasPlayerVoted, getPlayerPollVote, recordPollVote, getPollVotes } from '../lib/point-distribution';
+import { hasPlayerAnswered, hasPlayerVoted, getPlayerPollVote, recordPollVote, getPollVotes } from '../lib/point-distribution';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
+import { APIClient } from '../lib/api-client';
 
 // Helper function to get public URL for Supabase storage items
 const getStorageUrl = (url: string): string => {
@@ -211,7 +211,7 @@ export default function Game() {
         setPollVoted(hasVoted);
         
         if (hasVoted) {
-          // Get the actual vote they made
+          // Get their previous vote
           const playerVote = await getPlayerPollVote(activation.id, currentPlayerId);
           if (playerVote) {
             setSelectedAnswer(playerVote);
@@ -546,7 +546,7 @@ export default function Game() {
         const timeTakenMs = Date.now() - answerStartTime;
         
         if (debugMode) {
-          console.log('Distributing points with params:', {
+          console.log('Submitting answer with params:', {
             activationId: activeQuestion.id,
             roomId,
             playerId: currentPlayerId,
@@ -557,8 +557,8 @@ export default function Game() {
           });
         }
         
-        // Distribute points using the point distribution system
-        const result = await distributePoints({
+        // Submit answer using the API client
+        const result = await APIClient.submitAnswer({
           activationId: activeQuestion.id,
           roomId: roomId,
           playerId: currentPlayerId,
@@ -619,7 +619,7 @@ export default function Game() {
       console.error('Error processing answer:', error);
     }
   };
-  
+
   const handleTextAnswerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (hasAnswered || !activeQuestion || !textAnswer.trim()) return;
@@ -652,7 +652,7 @@ export default function Game() {
         const timeTakenMs = Date.now() - answerStartTime;
         
         if (debugMode) {
-          console.log('Text answer distribution params:', {
+          console.log('Text answer submission params:', {
             activationId: activeQuestion.id,
             roomId,
             playerId: currentPlayerId,
@@ -663,8 +663,8 @@ export default function Game() {
           });
         }
         
-        // Distribute points using the point distribution system
-        const result = await distributePoints({
+        // Submit answer using the API client
+        const result = await APIClient.submitAnswer({
           activationId: activeQuestion.id,
           roomId: roomId,
           playerId: currentPlayerId,
@@ -725,7 +725,7 @@ export default function Game() {
       console.error('Error processing text answer:', error);
     }
   };
-  
+
   const handlePollVote = async (answer: string) => {
     // Check if voting is allowed - must be in 'voting' state, not already voted, and poll must be active
     if (pollVoted || !activeQuestion || pollState !== 'voting' || !pollVoteCheckComplete || !currentPlayerId) {
@@ -866,474 +866,4 @@ export default function Game() {
         '#F97316', // Orange
         '#14B8A6', // Teal
       ];
-      return baseColors[index % baseColors.length];
-    }
-    
-    // Fallback colors
-    const colors = [
-      '#3B82F6', // Blue
-      '#10B981', // Green
-      '#F59E0B', // Yellow
-      '#8B5CF6', // Purple
-      '#EC4899', // Pink
-      '#6366F1'  // Indigo
-    ];
-    return colors[index % colors.length];
-  };
-  
-  const renderMediaContent = () => {
-    if (!activeQuestion?.media_url || activeQuestion.media_type === 'none') return null;
-    
-    switch (activeQuestion.media_type) {
-      case 'image':
-      case 'gif':
-        return (
-          <div className="flex justify-center items-center mb-4">
-            <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
-              <img 
-                src={getStorageUrl(activeQuestion.media_url)} 
-                alt="Question media" 
-                className="max-h-40 object-contain"
-                onError={(e) => {
-                  console.error('Error loading image:', activeQuestion.media_url);
-                  e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Preview';
-                }}
-              />
-            </div>
-          </div>
-        );
-      case 'youtube':
-        const videoId = activeQuestion.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/)?.[1];
-        return videoId ? (
-          <div className="flex justify-center items-center mb-4">
-            <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
-              <div className="aspect-video max-h-40">
-                <iframe
-                  className="w-full h-full"
-                  src={`https://www.youtube.com/embed/${videoId}`}
-                  allowFullScreen
-                />
-              </div>
-            </div>
-          </div>
-        ) : null;
-      default:
-        return null;
-    }
-  };
-
-  // Debug panel
-  const renderDebugPanel = () => {
-    if (!debugMode) return null;
-    
-    return (
-      <div className="fixed bottom-0 left-0 right-0 bg-black/80 text-white p-2 text-xs font-mono z-50 max-h-40 overflow-auto">
-        <div className="flex justify-between mb-1">
-          <span className="font-bold">DEBUG MODE</span>
-          <button onClick={() => setDebugMode(false)} className="text-red-400">Close</button>
-        </div>
-        <div>Player ID: {currentPlayerId}</div>
-        <div>Player Name: {currentPlayer?.name}</div>
-        <div>Score: {currentPlayer?.score}</div>
-        <div>Stats: {JSON.stringify(currentPlayer?.stats)}</div>
-        <div>Room ID: {roomId}</div>
-        <div>Current Activation: {currentActivation?.substring(0, 8)}...</div>
-        <div>Media Type: {activeQuestion?.media_type || 'None'}</div>
-        <div>Media URL: {activeQuestion?.media_url ? getStorageUrl(activeQuestion.media_url) : 'None'}</div>
-        <div>Has Answered: {hasAnswered ? 'Yes' : 'No'}</div>
-        <div>Is Correct: {isCorrect ? 'Yes' : 'No'}</div>
-        <div>Points Earned: {pointsEarned}</div>
-        <div>Answer Start Time: {answerStartTime ? new Date(answerStartTime).toISOString() : 'None'}</div>
-        <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
-        <div>Poll State: {pollState}</div>
-        <div>Poll Voted: {pollVoted ? 'Yes' : 'No'}</div>
-        <div>Selected Answer: {selectedAnswer}</div>
-        <div>Is Checking Poll Vote: {isCheckingPollVote ? 'Yes' : 'No'}</div>
-        <div>Poll Vote Check Complete: {pollVoteCheckComplete ? 'Yes' : 'No'}</div>
-      </div>
-    );
-  };
-
-  // Get active theme from room or default
-  const activeTheme = room?.theme || theme;
-
-  if (networkError) {
-    return (
-      <div 
-        className="flex flex-col items-center justify-center min-h-screen p-4 bg-theme-gradient"
-        style={{ 
-          background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
-        }}
-      >
-        <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center">
-          <WifiOff className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">Network Error</h1>
-          <p className="text-gray-600 mb-6">Unable to connect to the server. Please check your internet connection.</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-3 text-white rounded-lg transition"
-            style={{ backgroundColor: activeTheme.primary_color }}
-          >
-            Retry Connection
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!currentPlayer) {
-    return (
-      <div 
-        className="flex flex-col items-center justify-center min-h-screen p-4 bg-theme-gradient"
-        style={{ 
-          background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
-        }}
-      >
-        <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-8 max-w-md w-full text-center">
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">Join a Room</h1>
-          <p className="text-white/70 mb-6">You need to join a room to play.</p>
-          <button
-            onClick={() => navigate('/join')}
-            className="px-6 py-3 text-white rounded-lg transition"
-            style={{ backgroundColor: activeTheme.primary_color }}
-          >
-            Join a Room
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div 
-      className="min-h-screen p-4 bg-theme-gradient"
-      style={{ 
-        background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
-      }}
-    >
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-4 mb-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <div 
-              className="w-10 h-10 rounded-full flex items-center justify-center font-bold mr-3"
-              style={{ backgroundColor: `${activeTheme.primary_color}40` }}
-            >
-              {currentPlayer.name.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-white">{currentPlayer.name}</h1>
-              <div className="text-sm text-white/80 flex items-center">
-                <PointsDisplay points={currentPlayer.score || 0} />
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleLeaderboard}
-              className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full"
-              title="Leaderboard"
-            >
-              <Trophy className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setDebugMode(!debugMode)}
-              className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full"
-              title={debugMode ? "Hide Debug Info" : "Show Debug Info"}
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-        
-        {/* Active Question */}
-        {activeQuestion ? (
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-4 text-white relative">
-            {/* Points animation */}
-            {pointsEarned > 0 && (
-              <PointAnimation 
-                points={pointsEarned} 
-                className="absolute top-2 right-2"
-              />
-            )}
-            
-            {/* Timer Display */}
-            {activeQuestion.time_limit && activeQuestion.timer_started_at && (
-              <div className="mb-4 flex justify-center">
-                <CountdownTimer 
-                  initialSeconds={activeQuestion.time_limit}
-                  startTime={activeQuestion.timer_started_at}
-                  variant="large"
-                  onComplete={() => {
-                    if (activeQuestion.type === 'poll') {
-                      // For polls, just show the results when timer expires
-                      setPollVoted(true);
-                    } else {
-                      // For questions, show the answers
-                      setShowAnswers(true);
-                    }
-                  }}
-                />
-              </div>
-            )}
-            
-            {/* Poll State Indicator */}
-            {activeQuestion.type === 'poll' && (
-              <div className="mb-4 flex justify-center">
-                <PollStateIndicator state={pollState} />
-              </div>
-            )}
-            
-            <h2 className="text-xl font-semibold mb-4">{activeQuestion.question}</h2>
-            
-            {renderMediaContent()}
-            
-            {/* Multiple Choice Question */}
-            {activeQuestion.type === 'multiple_choice' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {activeQuestion.options?.map((option, index) => {
-                  const isSelected = option.text === selectedAnswer;
-                  const isCorrect = option.text === activeQuestion.correct_answer;
-                  const showCorrect = hasAnswered && showAnswers && isCorrect;
-                  const showIncorrect = hasAnswered && showAnswers && isSelected && !isCorrect;
-                  
-                  return (
-                    <button
-                      key={index}
-                      onClick={() => handleMultipleChoiceAnswer(option.text)}
-                      disabled={hasAnswered}
-                      className={`
-                        relative p-3 rounded-xl text-left transition 
-                        ${hasAnswered
-                          ? showCorrect
-                            ? 'bg-green-400/30 ring-2 ring-green-400'
-                            : showIncorrect
-                              ? 'bg-red-400/30 ring-2 ring-red-400'
-                              : isSelected
-                                ? 'bg-blue-400/30 ring-2 ring-blue-400'
-                                : 'bg-white/20'
-                          : 'bg-white/20 hover:bg-white/30'
-                        }
-                      `}
-                    >
-                      <div className="flex items-center gap-3">
-                        {option.media_type !== 'none' && option.media_url && (
-                          <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
-                            <img
-                              src={option.media_url}
-                              alt={option.text}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
-                              }}
-                            />
-                          </div>
-                        )}
-                        <div className="flex-1 font-medium truncate">{option.text}</div>
-                      </div>
-                      
-                      {showCorrect && (
-                        <div className="absolute -top-2 -right-2">
-                          <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                            <CheckCircle className="w-4 h-4 text-white" />
-                          </div>
-                        </div>
-                      )}
-                      {showIncorrect && (
-                        <div className="absolute -top-2 -right-2">
-                          <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center">
-                            <XCircle className="w-4 h-4 text-white" />
-                          </div>
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            
-            {/* Text Answer Question */}
-            {activeQuestion.type === 'text_answer' && (
-              <form onSubmit={handleTextAnswerSubmit} className="space-y-4">
-                <div className="bg-white/20 p-4 rounded-lg">
-                  <input
-                    type="text"
-                    value={textAnswer}
-                    onChange={(e) => setTextAnswer(e.target.value)}
-                    placeholder="Type your answer here..."
-                    disabled={hasAnswered}
-                    className={`w-full px-4 py-3 bg-white/10 border ${
-                      hasAnswered 
-                        ? showResult 
-                          ? isCorrect 
-                            ? 'border-green-400' 
-                            : 'border-red-400' 
-                          : 'border-white/30' 
-                        : 'border-white/30'
-                    } rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50`}
-                  />
-                </div>
-                
-                {!hasAnswered && (
-                  <button
-                    type="submit"
-                    disabled={!textAnswer.trim()}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ backgroundColor: activeTheme.primary_color }}
-                  >
-                    <Send className="w-4 h-4" />
-                    Submit Answer
-                  </button>
-                )}
-                
-                {showResult && renderAnswerResult()}
-              </form>
-            )}
-            
-            {/* Poll Question */}
-            {activeQuestion.type === 'poll' && (
-              <div className="mt-4">
-                {(!pollVoted && pollState === 'voting' && pollVoteCheckComplete) ? (
-                  <div className="grid grid-cols-1 gap-3">
-                    {activeQuestion.options?.map((option, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handlePollVote(option.text)}
-                        disabled={pollVoted || pollState !== 'voting' || isCheckingPollVote}
-                        className={`p-4 rounded-xl text-left transition hover:bg-white/30 bg-white/20 ${
-                          pollState !== 'voting' || isCheckingPollVote ? 'cursor-not-allowed opacity-70' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          {option.media_type !== 'none' && option.media_url && (
-                            <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-black/20">
-                              <img
-                                src={getStorageUrl(option.media_url)}
-                                alt={option.text}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  console.error('Error loading option image:', option.media_url);
-                                  e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
-                                }}
-                              />
-                            </div>
-                          )}
-                          <div className="flex-1 font-medium">{option.text}</div>
-                          {isCheckingPollVote && (
-                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={pollState === 'pending' ? "p-4 bg-yellow-100/20 rounded-lg text-center" : ""}>
-                    {pollState === 'pending' ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <Clock className="w-8 h-8 text-yellow-300" />
-                        <p className="text-lg font-medium">Waiting for voting to begin</p>
-                        <p className="text-sm opacity-80">The host will start the voting soon</p>
-                      </div>
-                    ) : (
-                      <PollDisplay 
-                        options={activeQuestion.options || []}
-                        votes={pollVotes}
-                        totalVotes={totalVotes}
-                        displayType={activeQuestion.poll_display_type || 'bar'}
-                        resultFormat={activeQuestion.poll_result_format || 'both'}
-                        selectedAnswer={selectedAnswer}
-                        getStorageUrl={getStorageUrl}
-                        themeColors={{
-                          primary_color: activeTheme.primary_color,
-                          secondary_color: activeTheme.secondary_color
-                        }}
-                      />
-                    )}
-                  </div>
-                )}
-                
-                {pollState === 'pending' && (
-                  <div className="mt-3 bg-white/10 p-3 rounded-lg text-center text-sm">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <Lock className="w-4 h-4" />
-                      <span>Voting is not active yet</span>
-                    </div>
-                    <p>Please wait for the host to start the voting.</p>
-                  </div>
-                )}
-                
-                {pollVoted && selectedAnswer && (
-                  <div className="mt-3 p-3 bg-green-400/20 rounded-lg text-center">
-                    <CheckCircle className="w-5 h-5 text-green-400 mx-auto mb-1" />
-                    <p className="text-sm">You voted for: <strong>{selectedAnswer}</strong></p>
-                  </div>
-                )}
-                
-                {isCheckingPollVote && (
-                  <div className="mt-3 p-3 bg-white/10 rounded-lg text-center">
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-1"></div>
-                    <p className="text-sm">Checking your vote status...</p>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {activeQuestion.type === 'leaderboard' && (
-              <div className="text-center p-4 bg-white/10 rounded-lg">
-                <p className="text-white">
-                  The leaderboard is displayed on the main screen.
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-8 mb-4 text-center">
-            <PlayCircle className="w-16 h-16 text-white/50 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-white mb-2">Waiting for the next question</h2>
-            <p className="text-white/80">
-              The host will start a new question soon. Get ready!
-            </p>
-          </div>
-        )}
-        
-        {/* Leaderboard */}
-        {showLeaderboard && (
-          <div 
-            ref={leaderboardRef}
-            className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-4 animate-pop-in"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white flex items-center">
-                <Trophy className="w-5 h-5 text-yellow-300 mr-2" />
-                Leaderboard
-              </h2>
-              <button
-                onClick={toggleLeaderboard}
-                className="p-1 text-white/70 hover:text-white rounded-full hover:bg-white/10"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {[currentPlayer, ...otherPlayers]
-                .sort((a, b) => (b.score || 0) - (a.score || 0))
-                .map((player, index) => (
-                  <LeaderboardItem
-                    key={player.id}
-                    player={player}
-                    rank={index + 1}
-                    previousRank={previousRankings[player.id]}
-                    isCurrentPlayer={player.id === currentPlayerId}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
-        
-        {renderDebugPanel()}
-      </div>
-    </div>
-  );
-}
+      return base
