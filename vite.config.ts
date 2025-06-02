@@ -7,8 +7,8 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
-    port: 8080,
-    strictPort: true,
+    port: 5173,
+    strictPort: false,
     host: true,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
@@ -16,8 +16,8 @@ export default defineConfig({
     }
   },
   preview: {
-    port: 8080,
-    strictPort: true,
+    port: 5173,
+    strictPort: false,
     host: true,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
