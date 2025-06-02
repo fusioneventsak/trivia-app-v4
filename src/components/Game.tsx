@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { PlayCircle, WifiOff } from 'lucide-react';
 import CountdownTimer from './ui/CountdownTimer';
-import { PollDisplay } from './ui/PollDisplay';
-import { PointAnimation } from './ui/PointAnimation';
-import { PointsDisplay } from './ui/PointsDisplay';
+import PollDisplay from './ui/PollDisplay';
+import PointAnimation from './ui/PointAnimation';
+import PointsDisplay from './ui/PointsDisplay';
 import LeaderboardItem from './ui/LeaderboardItem';
 import { getStorageUrl } from '../lib/utils';
 
