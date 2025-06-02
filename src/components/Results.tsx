@@ -11,7 +11,7 @@ import confetti from 'canvas-confetti';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
-import { hasPlayerVoted, getPollVotes } from '../lib/point-distribution';
+import { getPollVotes } from '../lib/point-distribution';
 import { subscribeToPollVotes } from '../lib/realtime';
 
 // Helper function to get public URL for Supabase storage items
@@ -118,6 +118,7 @@ export default function Results() {
   const [debugMode, setDebugMode] = useState(false);
   const [activationRefreshCount, setActivationRefreshCount] = useState(0);
   const activationChannelRef = useRef<any>(null);
+  const currentActivationIdRef = useRef<string | null>(null);
 
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -255,6 +256,9 @@ export default function Results() {
     // Store previous activation type before updating
     setPreviousActivationType(currentActivation?.type || null);
     
+    // Update current activation ID ref
+    currentActivationIdRef.current = activation?.id || null;
+    
     setCurrentActivation(activation);
     
     // Clean up any existing subscriptions
@@ -269,6 +273,11 @@ export default function Results() {
       timerIntervalRef.current = null;
     }
     
+    // Reset poll state
+    setPollVotes({});
+    setTotalVotes(0);
+    setPollState('pending');
+    
     if (activation) {
       // If it's a poll, set up poll-specific subscriptions
       if (activation.type === 'poll' && activation.options) {
@@ -279,13 +288,19 @@ export default function Results() {
         const cleanup = subscribeToPollVotes(
           activation.id, 
           (votes) => {
-            console.log("Results page poll votes updated:", votes);
-            setPollVotes(votes);
-            setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+            // Only update if this is still the current activation
+            if (currentActivationIdRef.current === activation.id) {
+              console.log("Results page poll votes updated:", votes);
+              setPollVotes(votes);
+              setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+            }
           },
           (state) => {
-            console.log("Results page poll state changed:", state);
-            setPollState(state);
+            // Only update if this is still the current activation
+            if (currentActivationIdRef.current === activation.id) {
+              console.log("Results page poll state changed:", state);
+              setPollState(state);
+            }
           }
         );
         pollSubscriptionRef.current = cleanup;
@@ -301,9 +316,6 @@ export default function Results() {
       // No activation
       setTimeRemaining(null);
       setShowAnswers(false);
-      setPollVotes({});
-      setTotalVotes(0);
-      setPollState('pending');
     }
   };
   
@@ -398,24 +410,19 @@ export default function Results() {
         
         if (payload.new && payload.old && payload.new.current_activation !== payload.old.current_activation) {
           if (payload.new?.current_activation) {
-            // Refresh the activation data
-            setActivationRefreshCount(count => count + 1);
+            // Fetch fresh activation data
+            const { data: activation, error } = await supabase
+              .from('activations')
+              .select('*')
+              .eq('id', payload.new.current_activation)
+              .single();
+              
+            if (!error && activation) {
+              await handleActivationChange(activation);
+            }
           } else {
             // Clear current activation
-            setPreviousActivationType(currentActivation?.type || null);
-            setCurrentActivation(null);
-            
-            // Clear any active timer
-            if (timerIntervalRef.current) {
-              clearInterval(timerIntervalRef.current);
-              timerIntervalRef.current = null;
-            }
-            
-            // Unsubscribe from poll channel if active
-            if (pollSubscriptionRef.current) {
-              pollSubscriptionRef.current();
-              pollSubscriptionRef.current = null;
-            }
+            await handleActivationChange(null);
           }
         }
       })
@@ -430,7 +437,7 @@ export default function Results() {
         table: 'activations',
         filter: `room_id=eq.${roomId}`
       }, async (payload) => {
-        if (currentActivation && payload.new.id === currentActivation.id) {
+        if (currentActivationIdRef.current && payload.new.id === currentActivationIdRef.current) {
           console.log('Current activation updated:', payload.new);
           await handleActivationChange(payload.new);
         }
@@ -492,7 +499,7 @@ export default function Results() {
     setTotalVotes(0);
     setPollState(activation.poll_state || 'pending');
     
-    // Fetch existing votes from analytics
+    // Fetch existing votes from poll_votes table
     const allVotes = await getPollVotes(activation.id);
     setPollVotes(allVotes);
     setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
@@ -856,6 +863,7 @@ export default function Results() {
             <div>Room Code: {room.room_code}</div>
             <div>Players: {Array.isArray(players) ? players.length : 'Not an array'}</div>
             <div>Current Activation: {currentActivation?.id || 'None'}</div>
+            <div>Current Activation Ref: {currentActivationIdRef.current || 'None'}</div>
             <div>Activation Type: {currentActivation?.type || 'N/A'}</div>
             <div>Media Type: {currentActivation?.media_type || 'None'}</div>
             <div>Media URL: {currentActivation?.media_url ? getStorageUrl(currentActivation.media_url) : 'None'}</div>
@@ -895,6 +903,20 @@ export default function Results() {
                 className="ml-2 px-2 py-1 bg-purple-800 text-purple-200 rounded"
               >
                 Refresh Activation
+              </button>
+              <button
+                onClick={async () => {
+                  // Force clear poll votes
+                  setPollVotes({});
+                  setTotalVotes(0);
+                  // Re-init poll if it's active
+                  if (currentActivation?.type === 'poll') {
+                    await initPollVotes(currentActivation);
+                  }
+                }}
+                className="px-2 py-1 bg-red-800 text-red-200 rounded"
+              >
+                Clear Poll Cache
               </button>
             </div>
           </div>
