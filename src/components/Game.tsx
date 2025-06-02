@@ -124,6 +124,9 @@ export default function Game() {
   const [hasCheckedAnswer, setHasCheckedAnswer] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
 
+  // Add state to track if we're checking poll vote status
+  const [isCheckingPollVote, setIsCheckingPollVote] = useState(false);
+
   // Add debug button with key combo (press d+e+b+u+g in order)
   useEffect(() => {
     const keys: string[] = [];
@@ -195,29 +198,32 @@ export default function Game() {
     }
   }, [roomId]);
 
-  // Check poll vote status whenever activeQuestion changes
-  useEffect(() => {
-    const checkPollVoteStatus = async () => {
-      if (activeQuestion?.type === 'poll' && activeQuestion.id && currentPlayerId) {
-        try {
-          const hasVoted = await hasPlayerVoted(activeQuestion.id, currentPlayerId);
-          setPollVoted(hasVoted);
-          
-          if (hasVoted) {
-            // Get the actual vote they made
-            const playerVote = await getPlayerPollVote(activeQuestion.id, currentPlayerId);
-            if (playerVote) {
-              setSelectedAnswer(playerVote);
-            }
+  // Check poll vote status when activation changes
+  const checkPollVoteStatus = async (activation: Activation) => {
+    if (activation.type === 'poll' && activation.id && currentPlayerId && !isCheckingPollVote) {
+      try {
+        setIsCheckingPollVote(true);
+        const hasVoted = await hasPlayerVoted(activation.id, currentPlayerId);
+        setPollVoted(hasVoted);
+        
+        if (hasVoted) {
+          // Get the actual vote they made
+          const playerVote = await getPlayerPollVote(activation.id, currentPlayerId);
+          if (playerVote) {
+            setSelectedAnswer(playerVote);
           }
-        } catch (err) {
-          console.error("Error checking player's poll vote:", err);
         }
+        
+        if (debugMode) {
+          console.log('Poll vote status check:', { activationId: activation.id, hasVoted, playerVote: selectedAnswer });
+        }
+      } catch (err) {
+        console.error("Error checking player's poll vote:", err);
+      } finally {
+        setIsCheckingPollVote(false);
       }
-    };
-    
-    checkPollVoteStatus();
-  }, [activeQuestion?.id, activeQuestion?.type, currentPlayerId]);
+    }
+  };
 
   // Subscribe to real-time updates
   useEffect(() => {
@@ -236,16 +242,18 @@ export default function Game() {
         setHasAnswered(false);
         setShowResult(false);
         setIsCorrect(false);
+        setPollVoted(false);
         setPointsEarned(0);
         setAnswerStartTime(null);
         setHasCheckedAnswer(false);
-        
-        // Don't reset pollVoted here - we'll check it properly below
 
         // Handle the poll activation
         if (activation?.type === 'poll') {
           await initPollVotes(activation);
           setPollState(activation.poll_state || 'pending');
+          
+          // Check if player has already voted for this poll
+          await checkPollVoteStatus(activation);
           
           // Clean up previous subscription
           if (pollSubscription) {
@@ -272,8 +280,6 @@ export default function Game() {
             pollSubscription();
             setPollSubscription(null);
           }
-          // Reset poll voted state only when switching away from a poll
-          setPollVoted(false);
         }
         
         // Setup timer if needed
@@ -282,24 +288,6 @@ export default function Game() {
         // Set answer start time for point calculation
         if (activation && (activation.type === 'multiple_choice' || activation.type === 'text_answer')) {
           setAnswerStartTime(Date.now());
-        }
-
-        // Check if player has already voted for this poll
-        if (activation?.type === 'poll' && activation.id && currentPlayerId) {
-          try {
-            const hasVoted = await hasPlayerVoted(activation.id, currentPlayerId);
-            setPollVoted(hasVoted);
-            
-            if (hasVoted) {
-              // Get the actual vote they made
-              const playerVote = await getPlayerPollVote(activation.id, currentPlayerId);
-              if (playerVote) {
-                setSelectedAnswer(playerVote);
-              }
-            }
-          } catch (err) {
-            console.error("Error checking player's poll vote:", err);
-          }
         }
       },
       onPlayerChange: (players) => {
@@ -355,6 +343,13 @@ export default function Game() {
       }
     };
   }, [roomId, currentPlayerId, debugMode]);
+
+  // Re-check poll vote status when activeQuestion changes
+  useEffect(() => {
+    if (activeQuestion) {
+      checkPollVoteStatus(activeQuestion);
+    }
+  }, [activeQuestion?.id]);
   
   // Setup timer when activation changes or timer starts
   const setupTimer = (activation: any) => {
@@ -506,79 +501,6 @@ export default function Game() {
     const allVotes = await getPollVotes(activation.id);
     setPollVotes(allVotes);
     setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
-    
-    // Check if current player has already voted
-    if (currentPlayerId) {
-      const hasVoted = await hasPlayerVoted(activation.id, currentPlayerId);
-      setPollVoted(hasVoted);
-      
-      if (hasVoted) {
-        const playerVote = await getPlayerPollVote(activation.id, currentPlayerId);
-        if (playerVote) {
-          setSelectedAnswer(playerVote);
-        }
-      }
-    }
-  };
-  
-  const fetchPollVotes = async (activationId: string) => {
-    try {
-      console.log(`Fetching poll votes for activation ${activationId}`);
-      const { data, error } = await supabase
-        .from('analytics_events')
-        .select('event_data')
-        .eq('event_type', 'poll_vote')
-        .eq('activation_id', activationId);
-        
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        // Count votes
-        const votes: PollVotes = {};
-        const activation = activeQuestion;
-        activation?.options?.forEach(option => {
-          votes[option.text] = 0;
-        });
-        
-        data.forEach(event => {
-          const answer = event.event_data?.answer;
-          if (answer && votes[answer] !== undefined) {
-            votes[answer]++;
-          }
-        });
-        
-        setPollVotes(votes);
-        setTotalVotes(data.length);
-        
-        if (debugMode) {
-          console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
-          console.log('Vote counts:', votes);
-        }
-        
-        // Check if current player has already voted
-        if (currentPlayerId) {
-          const hasVoted = await hasPlayerVoted(activationId, currentPlayerId);
-          setPollVoted(hasVoted);
-          
-          // If they've voted, find what they voted for
-          if (hasVoted) {
-            const { data: playerVote } = await supabase
-              .from('analytics_events')
-              .select('event_data')
-              .eq('event_type', 'poll_vote')
-              .eq('activation_id', activationId)
-              .filter('event_data->player_id', 'eq', currentPlayerId)
-              .single();
-              
-            if (playerVote?.event_data?.answer) {
-              setSelectedAnswer(playerVote.event_data.answer);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching poll votes:', err);
-    }
   };
 
   const handleMultipleChoiceAnswer = async (answer: string) => {
@@ -792,6 +714,9 @@ export default function Game() {
   const handlePollVote = async (answer: string) => {
     // Check if voting is allowed - must be in 'voting' state, not already voted, and poll must be active
     if (pollVoted || !activeQuestion || pollState !== 'voting') {
+      if (debugMode) {
+        console.log('Poll vote blocked:', { pollVoted, pollState, hasActivation: !!activeQuestion });
+      }
       return;
     }
     
@@ -815,7 +740,7 @@ export default function Game() {
       setPollVoted(true);
       setSelectedAnswer(answer);
       
-      // Update local state
+      // Update local state optimistically
       const newVotes = { ...pollVotes };
       newVotes[answer] = (newVotes[answer] || 0) + 1;
       setPollVotes(newVotes);
@@ -851,6 +776,9 @@ export default function Game() {
       
     } catch (error) {
       console.error('Error processing poll vote:', error);
+      // Revert optimistic update on error
+      setPollVoted(false);
+      setSelectedAnswer('');
     }
   };
 
@@ -869,7 +797,6 @@ export default function Game() {
           : 'bg-red-100 text-red-800'
         }
       `}>
-        
         <div className="flex items-center justify-center gap-2 text-lg font-semibold">
           {isCorrect ? (
             <>
@@ -994,6 +921,7 @@ export default function Game() {
         <div>Poll State: {pollState}</div>
         <div>Poll Voted: {pollVoted ? 'Yes' : 'No'}</div>
         <div>Selected Answer: {selectedAnswer}</div>
+        <div>Is Checking Poll Vote: {isCheckingPollVote ? 'Yes' : 'No'}</div>
       </div>
     );
   };
@@ -1244,9 +1172,9 @@ export default function Game() {
                       <button
                         key={index}
                         onClick={() => handlePollVote(option.text)}
-                        disabled={pollVoted || pollState !== 'voting'}
+                        disabled={pollVoted || pollState !== 'voting' || isCheckingPollVote}
                         className={`p-4 rounded-xl text-left transition hover:bg-white/30 bg-white/20 ${
-                          pollState !== 'voting' ? 'cursor-not-allowed opacity-70' : ''
+                          pollState !== 'voting' || isCheckingPollVote ? 'cursor-not-allowed opacity-70' : ''
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -1264,6 +1192,9 @@ export default function Game() {
                             </div>
                           )}
                           <div className="flex-1 font-medium">{option.text}</div>
+                          {isCheckingPollVote && (
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          )}
                         </div>
                       </button>
                     ))}
@@ -1301,6 +1232,13 @@ export default function Game() {
                       <span>Voting is not active yet</span>
                     </div>
                     <p>Please wait for the host to start the voting.</p>
+                  </div>
+                )}
+                
+                {pollVoted && selectedAnswer && (
+                  <div className="mt-3 p-3 bg-green-400/20 rounded-lg text-center">
+                    <CheckCircle className="w-5 h-5 text-green-400 mx-auto mb-1" />
+                    <p className="text-sm">You voted for: <strong>{selectedAnswer}</strong></p>
                   </div>
                 )}
               </div>
