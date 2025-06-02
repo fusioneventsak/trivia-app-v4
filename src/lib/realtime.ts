@@ -83,13 +83,13 @@ export const subscribeToPollVotes = (
 ): (() => void) => {
   console.log(`Setting up poll votes subscription for activation ${activationId}`);
   
-  // Initial fetch
-  const fetchVotes = async () => {
-    const votes = await getPollVotes(activationId);
+  // Immediately fetch initial votes
+  getPollVotes(activationId).then(votes => {
+    console.log(`Initial poll votes for ${activationId}:`, votes);
     onVotesUpdate(votes);
-  };
-  
-  fetchVotes();
+  }).catch(err => {
+    console.error(`Error fetching initial poll votes for ${activationId}:`, err);
+  });
   
   // Subscribe to poll_votes changes
   const votesChannel = supabase
@@ -101,8 +101,13 @@ export const subscribeToPollVotes = (
       filter: `activation_id=eq.${activationId}`
     }, async () => {
       console.log('Poll votes changed, fetching updated votes');
-      const votes = await getPollVotes(activationId);
-      onVotesUpdate(votes);
+      try {
+        const votes = await getPollVotes(activationId);
+        console.log(`Updated poll votes for ${activationId}:`, votes);
+        onVotesUpdate(votes);
+      } catch (err) {
+        console.error(`Error fetching updated poll votes for ${activationId}:`, err);
+      }
     })
     .subscribe((status) => {
       console.log(`Poll votes subscription status for ${activationId}: ${status}`);
@@ -129,8 +134,12 @@ export const subscribeToPollVotes = (
   // Return cleanup function
   return () => {
     console.log(`Cleaning up poll subscriptions for activation ${activationId}`);
-    votesChannel.unsubscribe();
-    activationChannel.unsubscribe();
+    try {
+      votesChannel.unsubscribe();
+      activationChannel.unsubscribe();
+    } catch (err) {
+      console.error(`Error unsubscribing from poll channels for ${activationId}:`, err);
+    }
   };
 };
 
