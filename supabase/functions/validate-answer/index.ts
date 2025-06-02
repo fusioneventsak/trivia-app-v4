@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { AnswerValidationRequest, AnswerValidationResponse } from "../shared/types.ts";
+import { AnswerValidationRequest, AnswerValidationResponse } from "../_shared/types.ts";
 
 // Create a Supabase client with the service role key
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
