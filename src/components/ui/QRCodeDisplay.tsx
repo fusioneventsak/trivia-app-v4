@@ -9,7 +9,10 @@ interface QRCodeDisplayProps {
   subtitle?: string;
   className?: string;
   logoUrl?: string;
-  primaryColor?: string;
+  theme?: {
+    primary_color?: string;
+    secondary_color?: string;
+  };
 }
 
 const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({
@@ -19,11 +22,14 @@ const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({
   subtitle = "Scan the QR code to join",
   className = "",
   logoUrl,
-  primaryColor = "#6366F1",
+  theme,
 }) => {
   const [copied, setCopied] = useState(false);
   const [qrError, setQrError] = useState(false);
   const [mounted, setMounted] = useState(false);
+  
+  // Extract primary color from theme or use default
+  const primaryColor = theme?.primary_color || "#6366F1";
 
   // Track component mounting for client-side rendering
   useEffect(() => {
