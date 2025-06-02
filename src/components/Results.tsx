@@ -11,8 +11,7 @@ import confetti from 'canvas-confetti';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
-import { getPollVotes } from '../lib/point-distribution';
-import { subscribeToPollVotes } from '../lib/realtime';
+import { getPollVotes, subscribeToPollVotes } from '../lib/realtime';
 import { getStorageUrl } from '../lib/utils';
 
 // Helper function to extract YouTube video ID from various URL formats
@@ -286,7 +285,9 @@ export default function Results() {
       if (activation.type === 'poll' && activation.options) {
         // Only init poll votes if it's a new activation
         if (isNewActivation) {
-          await initPollVotes(activation);
+          const votes = await getPollVotes(activation.id);
+          setPollVotes(votes);
+          setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
         }
         
         // Set up poll subscription (do this even if not a new activation to ensure subscription is active)
@@ -505,25 +506,6 @@ export default function Results() {
     };
   };
 
-  const initPollVotes = async (activation: Activation) => {
-    if (!activation.options) return;
-    
-    // Initialize votes object with zeros for all options
-    const votes: PollVotes = {};
-    activation.options.forEach(option => {
-      votes[option.text] = 0;
-    });
-    
-    setPollVotes(votes);
-    setTotalVotes(0);
-    setPollState(activation.poll_state || 'pending');
-    
-    // Fetch existing votes from poll_votes table
-    const allVotes = await getPollVotes(activation.id);
-    setPollVotes(allVotes);
-    setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
-  };
-  
   const renderMediaContent = () => {
     if (!currentActivation?.media_url || currentActivation.media_type === 'none') {
       if (debugMode) {
@@ -717,9 +699,9 @@ export default function Results() {
                 src={room.logo_url} 
                 alt={room.name} 
                 className="h-12 w-auto object-contain mr-4"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
+                onError={(e) =>
+                  e.currentTarget.style.display = 'none'
+                }
               />
             )}
             <h1 className="text-2xl font-bold text-white">{room.name}</h1>
@@ -933,7 +915,9 @@ export default function Results() {
                   setTotalVotes(0);
                   // Re-init poll if it's active
                   if (currentActivation?.type === 'poll') {
-                    await initPollVotes(currentActivation);
+                    const votes = await getPollVotes(currentActivation.id);
+                    setPollVotes(votes);
+                    setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
                   }
                 }}
                 className="px-2 py-1 bg-red-800 text-red-200 rounded"

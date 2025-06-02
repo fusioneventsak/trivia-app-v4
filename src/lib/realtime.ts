@@ -6,6 +6,32 @@ export interface PollVotes {
 
 export type PollState = 'pending' | 'voting' | 'closed';
 
+export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
+  try {
+    const { data, error } = await supabase
+      .rpc('get_poll_results', { p_activation_id: activationId });
+      
+    if (error) {
+      console.error('Error fetching poll results:', error);
+      return {};
+    }
+    
+    // Convert to PollVotes format
+    const votes: PollVotes = {};
+    if (data && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        votes[row.option_text] = parseInt(row.vote_count) || 0;
+      });
+    }
+    
+    console.log('Fetched poll votes:', votes);
+    return votes;
+  } catch (err) {
+    console.error('Error in getPollVotes:', err);
+    return {};
+  }
+};
+
 export const subscribeToPollVotes = (
   activationId: string,
   onVotesUpdate: (votes: PollVotes) => void,
@@ -13,34 +39,8 @@ export const subscribeToPollVotes = (
 ): (() => void) => {
   console.log('Setting up poll subscription for activation:', activationId);
   
-  // Function to fetch current votes
-  const fetchVotes = async () => {
-    try {
-      const { data, error } = await supabase
-        .rpc('get_poll_results', { p_activation_id: activationId });
-        
-      if (error) {
-        console.error('Error fetching poll results:', error);
-        return;
-      }
-      
-      // Convert to PollVotes format
-      const votes: PollVotes = {};
-      if (data && Array.isArray(data)) {
-        data.forEach((row: any) => {
-          votes[row.option_text] = parseInt(row.vote_count) || 0;
-        });
-      }
-      
-      console.log('Fetched poll votes:', votes);
-      onVotesUpdate(votes);
-    } catch (err) {
-      console.error('Error in fetchVotes:', err);
-    }
-  };
-  
   // Initial fetch
-  fetchVotes();
+  getPollVotes(activationId).then(votes => onVotesUpdate(votes));
   
   // Subscribe to poll_votes changes
   const votesChannel = supabase
@@ -53,9 +53,10 @@ export const subscribeToPollVotes = (
         table: 'poll_votes',
         filter: `activation_id=eq.${activationId}`
       },
-      (payload) => {
+      async (payload) => {
         console.log('Poll vote change detected:', payload);
-        fetchVotes();
+        const votes = await getPollVotes(activationId);
+        onVotesUpdate(votes);
       }
     )
     .subscribe();
