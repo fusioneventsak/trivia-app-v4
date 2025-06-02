@@ -4,7 +4,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useGameStore } from '../store/gameStore';
 import { Trophy, Settings, CheckCircle, XCircle, Users, Send, Clock, PlayCircle, X, Lock, WifiOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { subscribeToRoomUpdates, subscribeToPollVotes, getPollVotes } from '../lib/realtime';
+import { subscribeToRoomUpdates, subscribeToPollVotes } from '../lib/realtime';
 import confetti from 'canvas-confetti';
 import { useTheme } from '../context/ThemeContext';
 import CountdownTimer from './ui/CountdownTimer';
@@ -12,7 +12,7 @@ import PointAnimation from './ui/PointAnimation';
 import PointsDisplay from './ui/PointsDisplay';
 import { calculatePoints, POINT_CONFIG } from '../lib/point-calculator';
 import LeaderboardItem from './ui/LeaderboardItem';
-import { distributePoints, hasPlayerAnswered, hasPlayerVoted, getPlayerPollVote } from '../lib/point-distribution';
+import { distributePoints, hasPlayerAnswered, hasPlayerVoted, getPlayerPollVote, recordPollVote, getPollVotes } from '../lib/point-distribution';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 
@@ -224,7 +224,7 @@ export default function Game() {
           console.log('Poll vote status check:', { 
             activationId: activation.id, 
             hasVoted, 
-            playerVote: playerVote || selectedAnswer 
+            playerVote: await getPlayerPollVote(activation.id, currentPlayerId) 
           });
         }
       } catch (err) {
@@ -512,7 +512,7 @@ export default function Game() {
     setTotalVotes(0);
     setPollState(activation.poll_state || 'pending');
     
-    // Fetch existing votes from analytics
+    // Fetch existing votes from poll_votes table
     const allVotes = await getPollVotes(activation.id);
     setPollVotes(allVotes);
     setTotalVotes(Object.values(allVotes).reduce((sum, count) => sum + count, 0));
@@ -728,13 +728,14 @@ export default function Game() {
   
   const handlePollVote = async (answer: string) => {
     // Check if voting is allowed - must be in 'voting' state, not already voted, and poll must be active
-    if (pollVoted || !activeQuestion || pollState !== 'voting' || !pollVoteCheckComplete) {
+    if (pollVoted || !activeQuestion || pollState !== 'voting' || !pollVoteCheckComplete || !currentPlayerId) {
       if (debugMode) {
         console.log('Poll vote blocked:', { 
           pollVoted, 
           pollState, 
           hasActivation: !!activeQuestion,
-          pollVoteCheckComplete 
+          pollVoteCheckComplete,
+          currentPlayerId 
         });
       }
       return;
@@ -742,19 +743,25 @@ export default function Game() {
     
     try {
       // Double-check if player has already voted in this poll
-      if (currentPlayerId) {
-        const alreadyVoted = await hasPlayerVoted(activeQuestion.id, currentPlayerId);
-        if (alreadyVoted) {
-          console.log('Player has already voted in this poll');
-          setPollVoted(true);
-          
-          // Get their previous vote
-          const playerVote = await getPlayerPollVote(activeQuestion.id, currentPlayerId);
-          if (playerVote) {
-            setSelectedAnswer(playerVote);
-          }
-          return;
+      const alreadyVoted = await hasPlayerVoted(activeQuestion.id, currentPlayerId);
+      if (alreadyVoted) {
+        console.log('Player has already voted in this poll');
+        setPollVoted(true);
+        
+        // Get their previous vote
+        const playerVote = await getPlayerPollVote(activeQuestion.id, currentPlayerId);
+        if (playerVote) {
+          setSelectedAnswer(playerVote);
         }
+        return;
+      }
+      
+      // Record the vote in the poll_votes table
+      const voteRecorded = await recordPollVote(activeQuestion.id, currentPlayerId, answer);
+      
+      if (!voteRecorded) {
+        console.error('Failed to record poll vote');
+        return;
       }
       
       setPollVoted(true);
@@ -766,14 +773,7 @@ export default function Game() {
       setPollVotes(newVotes);
       setTotalVotes(totalVotes + 1);
       
-      // Store the vote in the poll_votes table
-      await supabase.from('poll_votes').insert([{
-        activation_id: activeQuestion.id,
-        player_id: currentPlayerId,
-        answer: answer
-      }]);
-      
-      // Also log to analytics for historical data
+      // Log the vote to analytics
       await supabase.from('analytics_events').insert([{
         event_type: 'poll_vote',
         room_id: roomId,
@@ -1324,22 +1324,4 @@ export default function Game() {
                     key={player.id}
                     player={player}
                     rank={index + 1}
-                    previousRank={previousRankings[player.id]}
-                    isCurrentPlayer={player.id === currentPlayerId}
-                    showStats={true}
-                  />
-                ))}
-                
-              {otherPlayers.length === 0 && (
-                <div className="text-center py-4 text-white/70">
-                  No other players have joined yet
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      {renderDebugPanel()}
-    </div>
-  );
-}
+                    previousRank={previous
