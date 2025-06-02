@@ -241,20 +241,32 @@ export async function hasPlayerVoted(
   playerId: string
 ): Promise<boolean> {
   try {
-    console.log(`Checking if player ${playerId} has voted in activation ${activationId}`);
+    // First try to check in the poll_votes table (more reliable)
     const { count, error } = await supabase
-      .from('analytics_events')
+      .from('poll_votes')
       .select('*', { count: 'exact', head: true })
-      .eq('event_type', 'poll_vote')
       .eq('activation_id', activationId)
-      .filter('event_data->player_id', 'eq', playerId);
+      .eq('player_id', playerId);
       
     if (error) {
       console.error('Error checking if player voted:', error);
-      return false;
+      
+      // Fall back to analytics_events if poll_votes query fails
+      const { count: legacyCount, error: legacyError } = await supabase
+        .from('analytics_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('event_type', 'poll_vote')
+        .eq('activation_id', activationId)
+        .filter('event_data->player_id', 'eq', playerId);
+        
+      if (legacyError) {
+        console.error('Error checking legacy votes:', legacyError);
+        return false;
+      }
+      
+      return legacyCount > 0;
     }
     
-    console.log(`Player ${playerId} has ${count > 0 ? '' : 'not '}voted in this poll`);
     return count > 0;
   } catch (error) {
     console.error('Error checking if player voted:', error);
@@ -291,6 +303,73 @@ export async function getLeaderboard(roomId: string): Promise<any[]> {
 export async function getPollVotes(activationId: string): Promise<{[key: string]: number}> {
   try {
     console.log(`Fetching poll votes for activation ${activationId}`);
+
+    // First try to get votes from the poll_votes table
+    const { data, error } = await supabase
+      .from('poll_votes')
+      .select('answer')
+      .eq('activation_id', activationId);
+      
+    if (error) {
+      console.error('Error fetching poll votes from poll_votes:', error);
+      
+      // Fall back to analytics_events
+      return getLegacyPollVotes(activationId);
+    }
+    
+    // Count votes by answer
+    const votes: Record<string, number> = {};
+    
+    // Get the options for this activation to initialize vote structure
+    const { data: activation, error: actError } = await supabase
+      .from('activations')
+      .select('options')
+      .eq('id', activationId)
+      .single();
+      
+    if (!actError && activation?.options) {
+      activation.options.forEach((option: any) => {
+        votes[option.text] = 0;
+      });
+    }
+    
+    // Count votes
+    data?.forEach(vote => {
+      const answer = vote.answer;
+      votes[answer] = (votes[answer] || 0) + 1;
+    });
+    
+    return votes;
+  } catch (error) {
+    console.error('Error getting poll votes:', error);
+    return {};
+  }
+}
+
+// Helper function to get poll votes from analytics_events (legacy method)
+async function getLegacyPollVotes(activationId: string): Promise<{[key: string]: number}> {
+  try {
+    // Get the options for this activation to initialize vote structure
+    const { data: activation, error: actError } = await supabase
+      .from('activations')
+      .select('options')
+      .eq('id', activationId)
+      .single();
+      
+    if (actError) {
+      console.error('Error getting poll options:', actError);
+      return {};
+    }
+    
+    // Initialize votes with zeros for all options
+    const votes: Record<string, number> = {};
+    if (activation?.options) {
+      activation.options.forEach((option: any) => {
+        votes[option.text] = 0;
+      });
+    }
+    
+    // Get all votes for this activation
     const { data, error } = await supabase
       .from('analytics_events')
       .select('event_data')
@@ -298,13 +377,11 @@ export async function getPollVotes(activationId: string): Promise<{[key: string]
       .eq('activation_id', activationId);
       
     if (error) {
-      console.error('Error fetching poll votes:', error);
-      return {};
+      console.error('Error fetching legacy poll votes:', error);
+      return votes;  // Return initialized zeros
     }
     
-    // Count votes by answer
-    const votes: {[key: string]: number} = {};
-    
+    // Count votes
     if (data && data.length > 0) {
       data.forEach(event => {
         const answer = event.event_data?.answer;
@@ -312,16 +389,11 @@ export async function getPollVotes(activationId: string): Promise<{[key: string]
           votes[answer] = (votes[answer] || 0) + 1;
         }
       });
-      
-      console.log(`Fetched ${data.length} poll votes for activation ${activationId}`);
-      console.log('Vote counts:', votes);
-    } else {
-      console.log(`No votes found for activation ${activationId}`);
     }
     
     return votes;
   } catch (error) {
-    console.error('Error fetching poll votes:', error);
+    console.error('Error getting legacy poll votes:', error);
     return {};
   }
 }
@@ -512,19 +584,34 @@ export async function getPlayerPollVote(
   playerId: string
 ): Promise<string | null> {
   try {
+    // First try to get from poll_votes table
     const { data, error } = await supabase
-      .from('analytics_events')
-      .select('event_data')
-      .eq('event_type', 'poll_vote')
+      .from('poll_votes')
+      .select('answer')
       .eq('activation_id', activationId)
-      .filter('event_data->player_id', 'eq', playerId)
+      .eq('player_id', playerId)
       .maybeSingle();
       
-    if (error || !data) {
-      return null;
+    if (error) {
+      console.error('Error getting player poll vote:', error);
+      
+      // Fall back to analytics_events
+      const { data: legacyData, error: legacyError } = await supabase
+        .from('analytics_events')
+        .select('event_data')
+        .eq('event_type', 'poll_vote')
+        .eq('activation_id', activationId)
+        .filter('event_data->player_id', 'eq', playerId)
+        .maybeSingle();
+        
+      if (legacyError || !legacyData) {
+        return null;
+      }
+      
+      return legacyData.event_data.answer || null;
     }
     
-    return data.event_data.answer || null;
+    return data?.answer || null;
   } catch (error) {
     console.error('Error getting player poll vote:', error);
     return null;

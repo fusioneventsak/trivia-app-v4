@@ -766,7 +766,14 @@ export default function Game() {
       setPollVotes(newVotes);
       setTotalVotes(totalVotes + 1);
       
-      // Log the vote to the database first to ensure persistence
+      // Store the vote in the poll_votes table
+      await supabase.from('poll_votes').insert([{
+        activation_id: activeQuestion.id,
+        player_id: currentPlayerId,
+        answer: answer
+      }]);
+      
+      // Also log to analytics for historical data
       await supabase.from('analytics_events').insert([{
         event_type: 'poll_vote',
         room_id: roomId,

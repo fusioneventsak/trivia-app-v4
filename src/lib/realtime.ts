@@ -265,31 +265,56 @@ export function subscribeToPollVotes(
         });
       }
       
-      // Get all votes for this specific activation
+      // Get all votes from the poll_votes table
       const { data, error } = await supabase
-        .from('analytics_events')
-        .select('event_data')
-        .eq('event_type', 'poll_vote')
+        .from('poll_votes')
+        .select('answer')
         .eq('activation_id', activationId);
         
       if (error) {
-        console.error('Error fetching initial poll votes:', error);
-        return;
-      }
-      
-      // Count votes for this activation only
-      if (data && data.length > 0) {
-        data.forEach(event => {
-          const answer = event.event_data?.answer;
-          if (answer && votes[answer] !== undefined) {
-            votes[answer]++;
-          }
-        });
+        console.error('Error fetching poll votes from poll_votes:', error);
         
-        console.log(`Initial poll votes loaded for ${activationId}:`, votes);
-        console.log(`Total votes found: ${data.length}`);
+        // Fall back to analytics_events
+        const { data: legacyData, error: legacyError } = await supabase
+          .from('analytics_events')
+          .select('event_data')
+          .eq('event_type', 'poll_vote')
+          .eq('activation_id', activationId);
+          
+        if (legacyError) {
+          console.error('Error fetching legacy poll votes:', legacyError);
+          return;
+        }
+        
+        // Count votes from legacy data
+        if (legacyData && legacyData.length > 0) {
+          legacyData.forEach(event => {
+            const answer = event.event_data?.answer;
+            if (answer && votes[answer] !== undefined) {
+              votes[answer]++;
+            }
+          });
+          
+          console.log(`Initial poll votes loaded from legacy data for ${activationId}:`, votes);
+          console.log(`Total legacy votes found: ${legacyData.length}`);
+        }
       } else {
-        console.log(`No votes found for activation ${activationId}, using zeros`);
+        // Count votes from poll_votes table
+        if (data && data.length > 0) {
+          data.forEach(vote => {
+            const answer = vote.answer;
+            if (votes[answer] !== undefined) {
+              votes[answer]++;
+            } else {
+              votes[answer] = 1;
+            }
+          });
+          
+          console.log(`Initial poll votes loaded for ${activationId}:`, votes);
+          console.log(`Total votes found: ${data.length}`);
+        } else {
+          console.log(`No votes found for activation ${activationId}, using zeros`);
+        }
       }
       
       // Update with current vote counts
@@ -325,23 +350,43 @@ export function subscribeToPollVotes(
   fetchInitialVotes();
   fetchPollState();
   
-  // Set up realtime subscription for new votes
-  const pollChannel = supabase.channel(`poll_votes_${activationId}`)
+  // Set up realtime subscription for new votes in poll_votes table
+  const pollVotesChannel = supabase.channel(`poll_votes_table_${activationId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'poll_votes',
+      filter: `activation_id=eq.${activationId}`
+    }, payload => {
+      console.log('New poll vote detected in poll_votes table:', payload);
+      fetchInitialVotes(); // Refetch all votes to ensure consistency
+    })
+    .subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`Subscribed to poll_votes table for activation ${activationId}`);
+      }
+      if (err) {
+        console.error(`Error subscribing to poll_votes table: ${err}`);
+      }
+    });
+    
+  // Also subscribe to legacy analytics_events for backward compatibility
+  const analyticsChannel = supabase.channel(`poll_votes_analytics_${activationId}`)
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
       table: 'analytics_events',
       filter: `event_type=eq.poll_vote AND activation_id=eq.${activationId}`
     }, payload => {
-      console.log('New poll vote detected:', payload);
+      console.log('New poll vote detected in analytics_events:', payload);
       fetchInitialVotes(); // Refetch all votes to ensure consistency
     })
     .subscribe((status, err) => {
       if (status === 'SUBSCRIBED') {
-        console.log(`Subscribed to poll votes for activation ${activationId}`);
+        console.log(`Subscribed to analytics_events for activation ${activationId}`);
       }
       if (err) {
-        console.error(`Error subscribing to poll votes: ${err}`);
+        console.error(`Error subscribing to analytics_events: ${err}`);
       }
     });
   
@@ -386,7 +431,8 @@ export function subscribeToPollVotes(
   // Return a cleanup function
   return () => {
     console.log(`Cleaning up poll subscriptions for ${activationId}`);
-    pollChannel.unsubscribe();
+    pollVotesChannel.unsubscribe();
+    analyticsChannel.unsubscribe();
     stateChannel.unsubscribe();
     broadcastChannel.unsubscribe();
     clearInterval(refreshInterval);
