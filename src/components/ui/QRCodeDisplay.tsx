@@ -77,7 +77,7 @@ const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({
       <div className="relative flex justify-center mb-5">
         {!qrError ? (
           <div className="relative bg-white p-3 rounded-lg inline-block shadow-lg">
-            <div className="qrcode-container" data-testid="qrcode">
+            <div className="qrcode-container\" data-testid="qrcode">
               {/* Wrap the QRCodeSVG in a try/catch to prevent rendering errors */}
               <QRCodeSVG
                 value={value}
