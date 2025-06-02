@@ -866,4 +866,4 @@ export default function Game() {
         '#F97316', // Orange
         '#14B8A6', // Teal
       ];
-      return base
+      return baseColors[index % baseColors.length];
