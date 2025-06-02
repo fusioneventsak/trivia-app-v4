@@ -156,3 +156,5 @@ export const submitPollVote = async (
     return { success: false, error: err.message || 'Failed to submit vote' };
   }
 };
+
+export default submitPollVote
