@@ -19,6 +19,7 @@ interface PollDisplayProps {
   displayType?: 'bar' | 'pie' | 'horizontal' | 'vertical';
   resultFormat?: 'percentage' | 'votes' | 'both';
   selectedAnswer?: string | null;
+  getStorageUrl?: (url: string) => string;
   themeColors?: {
     primary_color?: string;
     secondary_color?: string;
@@ -34,6 +35,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
   displayType = 'bar',
   resultFormat = 'both',
   selectedAnswer,
+  getStorageUrl = (url) => url, // Default implementation just returns the URL unchanged
   themeColors = {},
   compact = false,
   className = ''
@@ -109,7 +111,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                     {option.media_type !== 'none' && option.media_url && (
                       <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-1">
                         <img
-                          src={option.media_url}
+                          src={getStorageUrl(option.media_url)}
                           alt={option.text}
                           className="w-full h-full object-cover"
                           onError={(e) => {
@@ -181,7 +183,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                   {option.media_type !== 'none' && option.media_url && (
                     <div className="inline-block w-4 h-4 rounded-full overflow-hidden bg-black/20 mr-1 align-text-bottom">
                       <img
-                        src={option.media_url}
+                        src={getStorageUrl(option.media_url)}
                         alt=""
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -226,7 +228,7 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                     {option.media_type !== 'none' && option.media_url && (
                       <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-2 border border-white/30">
                         <img
-                          src={option.media_url}
+                          src={getStorageUrl(option.media_url)}
                           alt={option.text}
                           className="w-full h-full object-cover"
                           onError={(e) => {

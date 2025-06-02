@@ -15,6 +15,24 @@ import { distributePoints, hasPlayerAnswered, hasPlayerVoted, getPlayerPollVote 
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 
+// Helper function to get public URL for Supabase storage items
+const getStorageUrl = (url: string): string => {
+  if (!url) return '';
+  
+  // If it's already a full URL, return it
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // If it's a storage path, convert it to a public URL
+  if (url.startsWith('public/')) {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    return `${supabaseUrl}/storage/v1/object/public/${url}`;
+  }
+  
+  return url;
+};
+
 interface Option {
   text: string;
   media_type: 'none' | 'image' | 'gif';
@@ -872,10 +890,11 @@ export default function Game() {
           <div className="flex justify-center items-center mb-4">
             <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
               <img 
-                src={activeQuestion.media_url} 
+                src={getStorageUrl(activeQuestion.media_url)} 
                 alt="Question media" 
                 className="max-h-40 object-contain"
                 onError={(e) => {
+                  console.error('Error loading image:', activeQuestion.media_url);
                   e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Preview';
                 }}
               />
@@ -918,6 +937,8 @@ export default function Game() {
         <div>Stats: {JSON.stringify(currentPlayer?.stats)}</div>
         <div>Room ID: {roomId}</div>
         <div>Current Activation: {currentActivation?.substring(0, 8)}...</div>
+        <div>Media Type: {activeQuestion?.media_type || 'None'}</div>
+        <div>Media URL: {activeQuestion?.media_url ? getStorageUrl(activeQuestion.media_url) : 'None'}</div>
         <div>Has Answered: {hasAnswered ? 'Yes' : 'No'}</div>
         <div>Is Correct: {isCorrect ? 'Yes' : 'No'}</div>
         <div>Points Earned: {pointsEarned}</div>
@@ -1185,10 +1206,11 @@ export default function Game() {
                           {option.media_type !== 'none' && option.media_url && (
                             <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-black/20">
                               <img
-                                src={option.media_url}
+                                src={getStorageUrl(option.media_url)}
                                 alt={option.text}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
+                                  console.error('Error loading option image:', option.media_url);
                                   e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                                 }}
                               />
@@ -1215,6 +1237,7 @@ export default function Game() {
                         displayType={activeQuestion.poll_display_type || 'bar'}
                         resultFormat={activeQuestion.poll_result_format || 'both'}
                         selectedAnswer={selectedAnswer}
+                        getStorageUrl={getStorageUrl}
                         themeColors={{
                           primary_color: activeTheme.primary_color,
                           secondary_color: activeTheme.secondary_color

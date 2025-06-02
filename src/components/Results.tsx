@@ -14,6 +14,24 @@ import QRCodeDisplay from './ui/QRCodeDisplay';
 import { hasPlayerVoted, getPollVotes } from '../lib/point-distribution';
 import { subscribeToPollVotes } from '../lib/realtime';
 
+// Helper function to get public URL for Supabase storage items
+const getStorageUrl = (url: string): string => {
+  if (!url) return '';
+  
+  // If it's already a full URL, return it
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // If it's a storage path, convert it to a public URL
+  if (url.startsWith('public/')) {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    return `${supabaseUrl}/storage/v1/object/public/${url}`;
+  }
+  
+  return url;
+};
+
 // Helper function to extract YouTube video ID from various URL formats
 const extractYoutubeVideoId = (url: string): string | null => {
   if (!url) return null;
@@ -497,10 +515,11 @@ export default function Results() {
           <div className="flex justify-center items-center mb-4">
             <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
               <img 
-                src={currentActivation.media_url} 
+                src={getStorageUrl(currentActivation.media_url)} 
                 alt="Question media" 
                 className="max-h-40 object-contain"
                 onError={(e) => {
+                  console.error('Error loading question image:', currentActivation.media_url);
                   e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Preview';
                 }}
               />
@@ -728,7 +747,7 @@ export default function Results() {
                             {option.media_type !== 'none' && option.media_url && (
                               <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
                                 <img
-                                  src={option.media_url}
+                                  src={getStorageUrl(option.media_url)}
                                   alt={option.text}
                                   className="w-full h-full object-cover"
                                   onError={(e) => {
@@ -788,7 +807,8 @@ export default function Results() {
                       totalVotes={totalVotes}
                       displayType={currentActivation.poll_display_type || 'bar'}
                       resultFormat={currentActivation.poll_result_format || 'both'}
-                     selectedAnswer={null}
+                      selectedAnswer={null}
+                      getStorageUrl={getStorageUrl}
                       themeColors={{
                         primary_color: currentActivation.theme?.primary_color || room.theme?.primary_color || globalTheme.primary_color,
                         secondary_color: currentActivation.theme?.secondary_color || room.theme?.secondary_color || globalTheme.secondary_color
@@ -832,13 +852,13 @@ export default function Results() {
             <div>Players: {Array.isArray(players) ? players.length : 'Not an array'}</div>
             <div>Current Activation: {currentActivation?.id || 'None'}</div>
             <div>Activation Type: {currentActivation?.type || 'N/A'}</div>
-            <div>Poll State: {pollState}</div>
             <div>Media Type: {currentActivation?.media_type || 'None'}</div>
-            <div>Media URL: {currentActivation?.media_url || 'None'}</div>
+            <div>Media URL: {currentActivation?.media_url ? getStorageUrl(currentActivation.media_url) : 'None'}</div>
+            <div>Poll State: {pollState}</div>
            <div>Options: {currentActivation?.options ? currentActivation.options.length : 0}</div>
            {currentActivation?.options && currentActivation.options.map((opt: any, i: number) => (
              <div key={i} className="ml-2 text-xs">
-               Option {i+1}: {opt.text} | Media: {opt.media_type} | URL: {opt.media_url || 'none'}
+               Option {i+1}: {opt.text} | Media: {opt.media_type} | URL: {opt.media_url ? getStorageUrl(opt.media_url) : 'none'}
              </div>
            ))}
             <div>Poll Total Votes: {totalVotes}</div>
