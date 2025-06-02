@@ -13,24 +13,7 @@ import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
 import { getPollVotes } from '../lib/point-distribution';
 import { subscribeToPollVotes } from '../lib/realtime';
-
-// Helper function to get public URL for Supabase storage items
-const getStorageUrl = (url: string): string => {
-  if (!url) return '';
-  
-  // If it's already a full URL, return it
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
-  }
-  
-  // If it's a storage path, convert it to a public URL
-  if (url.startsWith('public/')) {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    return `${supabaseUrl}/storage/v1/object/public/${url}`;
-  }
-  
-  return url;
-};
+import { getStorageUrl } from '../lib/utils';
 
 // Helper function to extract YouTube video ID from various URL formats
 const extractYoutubeVideoId = (url: string): string | null => {
@@ -801,6 +784,7 @@ export default function Results() {
                                   onError={(e) => {
                                    if (debugMode) {
                                      console.log('Error loading option image:', option.media_url);
+                                
                                    }
                                    e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                                   }}

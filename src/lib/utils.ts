@@ -29,3 +29,20 @@ export function formatNumber(num: number): string {
 export function generateRoomCode(): string {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
+
+export function getStorageUrl(url: string): string {
+  if (!url) return '';
+  
+  // If it's already a full URL, return it
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // If it's a storage path, convert it to a public URL
+  if (url.startsWith('public/')) {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    return `${supabaseUrl}/storage/v1/object/public/${url}`;
+  }
+  
+  return url;
+}
