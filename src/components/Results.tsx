@@ -118,7 +118,7 @@ export default function Results() {
   const [debugMode, setDebugMode] = useState(false);
   const [activationRefreshCount, setActivationRefreshCount] = useState(0);
   const activationChannelRef = useRef<any>(null);
-  
+
   // Toggle debug mode with key sequence
   useEffect(() => {
     const keys: string[] = [];
@@ -139,7 +139,7 @@ export default function Results() {
       window.removeEventListener('keydown', keyHandler);
     };
   }, [debugMode]);
-  
+
   // Add network status event listeners
   useEffect(() => {
     const handleOnline = () => setNetworkError(false);
@@ -162,14 +162,19 @@ export default function Results() {
       try {
         setLoading(true);
         
-        // Get room by code
+        // Get room by code using maybeSingle() instead of single()
         const { data: roomData, error: roomError } = await supabase
           .from('rooms')
           .select('*')
           .eq('room_code', code)
-          .single();
+          .maybeSingle();
           
         if (roomError) throw roomError;
+        
+        // Check if room exists
+        if (!roomData) {
+          throw new Error('Room not found or is inactive');
+        }
         
         setRoom(roomData);
         
@@ -219,9 +224,9 @@ export default function Results() {
         // Set up real-time subscriptions
         setupRealtimeSubscriptions(roomData.id);
         
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching room:', err);
-        setError('Failed to load room data');
+        setError(err.message || 'Failed to load room data');
         setLoading(false);
       }
     };
