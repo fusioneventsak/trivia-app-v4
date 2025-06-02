@@ -732,7 +732,10 @@ export default function Results() {
                                   alt={option.text}
                                   className="w-full h-full object-cover"
                                   onError={(e) => {
-                                    e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                                   if (debugMode) {
+                                     console.log('Error loading option image:', option.media_url);
+                                   }
+                                   e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
                                   }}
                                 />
                               </div>
@@ -785,6 +788,7 @@ export default function Results() {
                       totalVotes={totalVotes}
                       displayType={currentActivation.poll_display_type || 'bar'}
                       resultFormat={currentActivation.poll_result_format || 'both'}
+                     selectedAnswer={null}
                       themeColors={{
                         primary_color: currentActivation.theme?.primary_color || room.theme?.primary_color || globalTheme.primary_color,
                         secondary_color: currentActivation.theme?.secondary_color || room.theme?.secondary_color || globalTheme.secondary_color
@@ -831,6 +835,12 @@ export default function Results() {
             <div>Poll State: {pollState}</div>
             <div>Media Type: {currentActivation?.media_type || 'None'}</div>
             <div>Media URL: {currentActivation?.media_url || 'None'}</div>
+           <div>Options: {currentActivation?.options ? currentActivation.options.length : 0}</div>
+           {currentActivation?.options && currentActivation.options.map((opt: any, i: number) => (
+             <div key={i} className="ml-2 text-xs">
+               Option {i+1}: {opt.text} | Media: {opt.media_type} | URL: {opt.media_url || 'none'}
+             </div>
+           ))}
             <div>Poll Total Votes: {totalVotes}</div>
             <div>Poll Votes: {JSON.stringify(pollVotes)}</div>
             <div>Show Answers: {showAnswers ? 'true' : 'false'}</div>
