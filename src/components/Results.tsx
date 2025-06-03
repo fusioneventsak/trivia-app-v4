@@ -14,6 +14,24 @@ import QRCodeDisplay from './ui/QRCodeDisplay';
 import { getPollVotes, subscribeToPollVotes } from '../lib/realtime';
 import { getStorageUrl } from '../lib/utils';
 
+// Convert poll votes from option IDs to option texts for display
+const convertVotesToTextBased = (votes: PollVotes, options?: Option[]): PollVotes => {
+  if (!options) return {};
+  
+  const textBasedVotes: PollVotes = {};
+  
+  // For each option, find its votes by ID
+  options.forEach(option => {
+    if (option.id && votes[option.id]) {
+      textBasedVotes[option.text] = votes[option.id];
+    } else {
+      textBasedVotes[option.text] = 0;
+    }
+  });
+  
+  return textBasedVotes;
+};
+
 // Helper function to extract YouTube video ID from various URL formats
 const extractYoutubeVideoId = (url: string): string | null => {
   if (!url) return null;
@@ -87,6 +105,7 @@ export default function Results() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pollVotes, setPollVotes] = useState<PollVotes>({});
+  const [pollVotesByText, setPollVotesByText] = useState<PollVotes>({});
   const [totalVotes, setTotalVotes] = useState(0);
   const [networkError, setNetworkError] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
@@ -256,31 +275,7 @@ export default function Results() {
     // Store previous activation type before updating
     if (isNewActivation) {
       setPreviousActivationType(currentActivation?.type || null);
-    
-      if (debugMode) {
-        console.log('New activation detected, cleaning up previous subscriptions');
-      }
-      
-      // Clean up any existing poll subscription
-      if (pollSubscriptionRef.current) {
-        console.log('Cleaning up previous poll subscription');
-        pollSubscriptionRef.current();
-        pollSubscriptionRef.current = null;
-      }
-      
-      // Clear timer
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
-      }
-      
-      // Reset poll state only for new activations
-      setPollVotes({});
-      setTotalVotes(0);
     }
-    
-    // Update current activation ID ref
-    currentActivationIdRef.current = activation?.id || null;
     
     setCurrentActivation(activation);
     
@@ -288,16 +283,38 @@ export default function Results() {
     setPollState(activation?.poll_state || 'pending');
     
     if (activation) {
+      // Clear timer if it's a new activation
+      if (isNewActivation && timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      
       // If it's a poll, set up poll-specific subscriptions
       if (activation.type === 'poll' && activation.options) {
         console.log('Setting up poll subscription for activation:', activation.id);
         
-        // Only init poll votes if it's a new activation or we don't have a subscription
+        // Clean up existing poll subscription if this is a new activation
+        if (isNewActivation && pollSubscriptionRef.current) {
+          console.log('Cleaning up previous poll subscription');
+          pollSubscriptionRef.current();
+          pollSubscriptionRef.current = null;
+        }
+        
+        // Only initialize poll votes if it's a new activation or we don't have a subscription
         if (isNewActivation || !pollSubscriptionRef.current) {
           console.log('Initializing poll votes for new activation');
-          const votes = await getPollVotes(activation.id);
-          setPollVotes(votes);
-          setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+          try {
+            const votes = await getPollVotes(activation.id);
+            setPollVotes(votes);
+            
+            // Convert to text-based votes for display
+            const textVotes = convertVotesToTextBased(votes, activation.options);
+            setPollVotesByText(textVotes);
+            
+            setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+          } catch (err) {
+            console.error('Error fetching initial poll votes:', err);
+          }
           
           // Set up a fresh poll subscription
           console.log('Creating new poll subscription');
@@ -309,6 +326,11 @@ export default function Results() {
                 if (currentActivationIdRef.current === activation.id) {
                   console.log("Results page poll votes updated:", votes);
                   setPollVotes(votes);
+                  
+                  // Convert to text-based votes for display
+                  const textVotes = convertVotesToTextBased(votes, activation.options);
+                  setPollVotesByText(textVotes);
+                  
                   setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
                 }
               },
@@ -333,11 +355,29 @@ export default function Results() {
       } else {
         setShowAnswers(activation.show_answers !== false);
       }
+    } else if (isNewActivation) {
+      // No activation and it's a change - reset states
+      setTimeRemaining(null);
+      setShowAnswers(false);
+      
+      // Clean up poll subscription
+      if (pollSubscriptionRef.current) {
+        pollSubscriptionRef.current();
+        pollSubscriptionRef.current = null;
+      }
+      
+      // Reset poll states
+      setPollVotes({});
+      setPollVotesByText({});
+      setTotalVotes(0);
     } else {
-      // No activation
+      // No activation but not a change - just update states
       setTimeRemaining(null);
       setShowAnswers(false);
     }
+    
+    // Update current activation ID ref after handling everything
+    currentActivationIdRef.current = activation?.id || null;
   };
   
   // Update player rankings
@@ -830,7 +870,7 @@ export default function Results() {
                     
                     <PollDisplay
                       options={currentActivation.options || []}
-                      votes={pollVotes}
+                      votes={pollVotesByText}
                       totalVotes={totalVotes}
                       displayType={currentActivation.poll_display_type || 'bar'}
                       resultFormat={currentActivation.poll_result_format || 'both'}
