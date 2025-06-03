@@ -837,4 +837,15 @@ export default function Results() {
                                 <img
                                   src={getStorageUrl(option.media_url)}
                                   alt={option.text}
-                
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+                            <span className="text-white">
+                              {option.text}
+                              {showAnswers && isCorrect && (
+                                <span className="ml-2 text-green-400">✓</span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
