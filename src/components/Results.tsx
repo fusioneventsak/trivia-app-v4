@@ -11,8 +11,8 @@ import confetti from 'canvas-confetti';
 import PollStateIndicator from './ui/PollStateIndicator';
 import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
-import { getPollVotes, subscribeToPollVotes } from '../lib/realtime';
 import { getStorageUrl } from '../lib/utils';
+import { usePollManager } from '../hooks/usePollManager';
 
 // Helper function to extract YouTube video ID from various URL formats
 const extractYoutubeVideoId = (url: string): string | null => {
@@ -38,8 +38,9 @@ interface Player {
 
 interface Option {
   text: string;
-  media_type: 'none' | 'image' | 'gif';
-  media_url: string;
+  id?: string;
+  media_type?: 'none' | 'image' | 'gif';
+  media_url?: string;
 }
 
 interface Activation {
@@ -74,10 +75,6 @@ interface Activation {
   show_answers?: boolean;
 }
 
-interface PollVotes {
-  [key: string]: number;
-}
-
 export default function Results() {
   const { code } = useParams<{ code: string }>();
   const { theme: globalTheme } = useTheme();
@@ -86,15 +83,10 @@ export default function Results() {
   const [currentActivation, setCurrentActivation] = useState<Activation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pollVotes, setPollVotes] = useState<PollVotes>({});
-  const [pollVotesByText, setPollVotesByText] = useState<PollVotes>({});
-  const [totalVotes, setTotalVotes] = useState(0);
   const [networkError, setNetworkError] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [showAnswers, setShowAnswers] = useState(false);
-  const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const pollSubscriptionRef = useRef<(() => void) | null>(null);
   const [playerRankings, setPlayerRankings] = useState<{[key: string]: number}>({});
   const [previousRankings, setPreviousRankings] = useState<{[key: string]: number}>({});
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
@@ -104,31 +96,16 @@ export default function Results() {
   const currentActivationIdRef = useRef<string | null>(null);
   const gameSessionChannelRef = useRef<any>(null);
 
-  // Convert poll votes from option IDs to option texts for display
-  const convertVotesToTextBased = (votes: PollVotes, options?: Option[]): PollVotes => {
-    if (!options) return {};
-    
-    const textBasedVotes: PollVotes = {};
-    
-    // For each option, find its votes by ID
-    options.forEach(option => {
-      // First try to get votes by option.id if it exists
-      let voteCount = 0;
-      
-      // Check votes by option.id
-      if (option.id && votes[option.id] !== undefined) {
-        voteCount = votes[option.id];
-      }
-      // Fallback to votes by option.text
-      else if (votes[option.text] !== undefined) {
-        voteCount = votes[option.text];
-      }
-      
-      textBasedVotes[option.text] = voteCount;
-    });
-    
-    return textBasedVotes;
-  };
+  // Poll management
+  const {
+    votesByText: pollVotesByText,
+    totalVotes,
+    pollState,
+    isLoading: pollLoading
+  } = usePollManager({
+    activationId: currentActivation?.id || null,
+    options: currentActivation?.options
+  });
 
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -251,10 +228,6 @@ export default function Results() {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
       }
-      if (pollSubscriptionRef.current) {
-        pollSubscriptionRef.current();
-        pollSubscriptionRef.current = null;
-      }
       if (activationChannelRef.current) {
         activationChannelRef.current.unsubscribe();
         activationChannelRef.current = null;
@@ -290,98 +263,12 @@ export default function Results() {
     
     setCurrentActivation(activation);
     
-    // Only clean up and reset if it's a new activation
-    if (isNewActivation) {
-      if (debugMode) {
-        console.log('New activation detected, cleaning up previous subscriptions');
-      }
-      
-      // Clean up any existing poll subscription
-      if (pollSubscriptionRef.current) {
-        console.log('Cleaning up previous poll subscription');
-        pollSubscriptionRef.current();
-        pollSubscriptionRef.current = null;
-      }
-      
-      // Clear timer
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
-      }
-      
-      // Reset poll state only for new activations
-      setPollVotes({});
-      setPollVotesByText({});
-      setTotalVotes(0);
-    }
-    
-    // Update poll state (this can change without changing activation)
-    setPollState(activation?.poll_state || 'pending');
-    
-    if (activation) {
-      // If it's a poll, set up poll-specific subscriptions
-      if (activation.type === 'poll' && activation.options) {
-        console.log('Setting up poll subscription for activation:', activation.id);
-        
-        // Only init poll votes if it's a new activation
-        if (isNewActivation) {
-          console.log('Initializing poll votes for new activation');
-          const votes = await getPollVotes(activation.id);
-          setPollVotes(votes);
-          
-          // Convert to text-based votes for display
-          const textVotes = convertVotesToTextBased(votes, activation.options);
-          setPollVotesByText(textVotes);
-          setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-        }
-        
-        // Always set up a fresh poll subscription to ensure it's active
-        if (pollSubscriptionRef.current) {
-          console.log('Cleaning up existing poll subscription before creating new one');
-          pollSubscriptionRef.current();
-          pollSubscriptionRef.current = null;
-        }
-        
-        console.log('Creating new poll subscription');
-        try {
-          const cleanup = subscribeToPollVotes(
-            activation.id, 
-            (votes) => {
-              // Only update if this is still the current activation
-              if (currentActivationIdRef.current === activation.id) {
-                console.log("Results page poll votes updated:", votes);
-                setPollVotes(votes);
-                
-                // Convert to text-based votes
-                const textVotes = convertVotesToTextBased(votes, activation.options);
-                setPollVotesByText(textVotes);
-                setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-              }
-            },
-            (state) => {
-              // Only update if this is still the current activation
-              if (currentActivationIdRef.current === activation.id) {
-                console.log("Results page poll state changed:", state);
-                setPollState(state);
-              }
-            }
-          );
-          pollSubscriptionRef.current = cleanup;
-        } catch (err) {
-          console.error('Error setting up poll subscription:', err);
-        }
-      }
-      
-      // Setup timer if needed
-      if (activation.time_limit && activation.timer_started_at) {
-        setupTimer(activation);
-      } else {
-        setShowAnswers(activation.show_answers !== false);
-      }
+    // Setup timer if needed
+    if (activation?.time_limit && activation.timer_started_at) {
+      setupTimer(activation);
     } else {
-      // No activation
+      setShowAnswers(activation?.show_answers !== false);
       setTimeRemaining(null);
-      setShowAnswers(false);
     }
   };
   
@@ -516,10 +403,10 @@ export default function Results() {
               ...payload.new
             }));
             
-            // Update poll state if it changed
-            if (payload.new.poll_state !== payload.old?.poll_state) {
-              console.log(`Poll state changed from ${payload.old?.poll_state} to ${payload.new.poll_state}`);
-              setPollState(payload.new.poll_state || 'pending');
+            // Update timer_started_at if it changed
+            if (payload.new.timer_started_at !== payload.old?.timer_started_at && 
+                payload.new.time_limit && payload.new.timer_started_at) {
+              setupTimer(payload.new as Activation);
             }
           }
         }
@@ -561,7 +448,6 @@ export default function Results() {
         }
       )
       .subscribe();
-      
       
     // Return cleanup function
     return () => {
@@ -692,7 +578,7 @@ export default function Results() {
       activationType: currentActivation?.type,
       showAnswers,
       pollState,
-      pollVotes,
+      pollVotesByText,
       totalVotes
     });
   }
@@ -879,8 +765,8 @@ export default function Results() {
                       totalVotes={totalVotes}
                       displayType={currentActivation.poll_display_type || 'bar'}
                       resultFormat={currentActivation.poll_result_format || 'both'}
-                      showResults={pollState === 'closed'}
-                      theme={activeTheme}
+                      getStorageUrl={getStorageUrl}
+                      themeColors={activeTheme}
                     />
                   </div>
                 )}
@@ -951,7 +837,6 @@ export default function Results() {
             <div>Poll State: {pollState}</div>
             <div>Show Answers: {showAnswers.toString()}</div>
             <div>Total Votes: {totalVotes}</div>
-            <div>Poll Votes (by ID): {JSON.stringify(pollVotes)}</div>
             <div>Poll Votes (by text): {JSON.stringify(pollVotesByText)}</div>
             <div>Network Status: {networkError ? 'Offline' : 'Online'}</div>
             <button

@@ -9,10 +9,10 @@ import CountdownTimer from './ui/CountdownTimer';
 import PointAnimation from './ui/PointAnimation';
 import PointsDisplay from './ui/PointsDisplay';
 import LeaderboardDisplay from './ui/LeaderboardDisplay';
-import { getPollVotes, subscribeToPollVotes, checkIfPlayerVoted, submitPollVote } from '../lib/realtime';
 import PollDisplay from './ui/PollDisplay';
 import confetti from 'canvas-confetti';
 import { getStorageUrl } from '../lib/utils';
+import { usePollManager } from '../hooks/usePollManager';
 
 interface Option {
   text: string;
@@ -37,10 +37,6 @@ interface Activation {
   timer_started_at?: string;
 }
 
-interface PollVotes {
-  [key: string]: number;
-}
-
 export default function Game() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
@@ -56,35 +52,26 @@ export default function Game() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [room, setRoom] = useState<any>(null);
-  const [pollVotes, setPollVotes] = useState<PollVotes>({});
-  const [pollVotesByText, setPollVotesByText] = useState<PollVotes>({});
-  const [totalVotes, setTotalVotes] = useState(0);
-  const [pollVoted, setPollVoted] = useState(false);
-  const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
-  const pollSubscriptionRef = useRef<(() => void) | null>(null);
   const [pointsEarned, setPointsEarned] = useState<number>(0);
   const [showPointAnimation, setShowPointAnimation] = useState(false);
   const [playerScore, setPlayerScore] = useState<number>(0);
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [showAnswers, setShowAnswers] = useState(true);
 
-  // Convert poll votes from option IDs to option texts for display
-  const convertVotesToTextBased = (votes: PollVotes, options?: Option[]): PollVotes => {
-    if (!options) return {};
-    
-    const textBasedVotes: PollVotes = {};
-    
-    // For each option, find its votes by ID
-    options.forEach(option => {
-      if (option.id && votes[option.id]) {
-        textBasedVotes[option.text] = votes[option.id];
-      } else {
-        textBasedVotes[option.text] = 0;
-      }
-    });
-    
-    return textBasedVotes;
-  };
+  // Poll management
+  const {
+    votesByText: pollVotes,
+    totalVotes,
+    hasVoted: pollVoted,
+    selectedOptionId: pollSelectedOptionId,
+    pollState,
+    submitVote: submitPollVote,
+    isLoading: pollLoading
+  } = usePollManager({
+    activationId: currentActivation?.id || null,
+    options: currentActivation?.options,
+    playerId: currentPlayerId
+  });
 
   // Check if player exists
   useEffect(() => {
@@ -149,9 +136,6 @@ export default function Game() {
     
     return () => {
       cleanup.then(fn => fn && fn());
-      if (pollSubscriptionRef.current) {
-        pollSubscriptionRef.current();
-      }
     };
   }, [roomId, currentPlayerId, navigate]);
   
@@ -230,35 +214,6 @@ export default function Game() {
         setShowAnswers(data.show_answers !== false);
       }
       
-      // Check poll state
-      setPollState(data.poll_state || 'pending');
-      
-      // For polls, check if already voted and set up subscription
-      if (data.type === 'poll' && currentPlayerId) {
-        const hasVoted = await checkIfPlayerVoted(data.id, currentPlayerId);
-        setPollVoted(hasVoted);
-        
-        // Clean up previous subscription
-        if (pollSubscriptionRef.current) {
-          pollSubscriptionRef.current();
-        }
-        
-        // Set up new subscription
-        pollSubscriptionRef.current = subscribeToPollVotes(
-          data.id,
-          (votes) => {
-            setPollVotes(votes);
-            // Convert to text-based votes for display
-            const textVotes = convertVotesToTextBased(votes, data.options);
-            setPollVotesByText(textVotes);
-            setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-          },
-          (state) => {
-            setPollState(state);
-          }
-        );
-      }
-      
       // Start response timer for questions
       if ((data.type === 'multiple_choice' || data.type === 'text_answer') && !hasAnswered) {
         setResponseStartTime(Date.now());
@@ -277,7 +232,6 @@ export default function Game() {
     setHasAnswered(false);
     setShowResult(false);
     setIsCorrect(false);
-    setPollVoted(false);
     setResponseStartTime(null);
   };
   
@@ -358,7 +312,7 @@ export default function Game() {
   };
   
   const handlePollVote = async (answer: string, optionId?: string) => {
-    if (pollVoted || pollState === 'closed' || !currentActivation || !currentPlayerId) return;
+    if (!currentActivation || !currentPlayerId) return;
     
     // Ensure we have an option ID to submit
     if (!optionId) {
@@ -374,11 +328,9 @@ export default function Game() {
     setSelectedAnswer(answer);
     setSelectedOptionId(optionId);
     
-    const result = await submitPollVote(currentActivation.id, currentPlayerId, optionId);
+    const result = await submitPollVote(optionId);
     
     if (result.success) {
-      setPollVoted(true);
-      
       // Award participation points for voting
       const participationPoints = 25;
       setPointsEarned(participationPoints);
@@ -464,7 +416,7 @@ export default function Game() {
           </div>
         );
       case 'youtube':
-        const videoId = currentActivation.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/)?.[1];
+        const videoId = currentActivation.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/)?.[1];
         return videoId ? (
           <div className="flex justify-center items-center mb-6">
             <div className="w-full max-w-lg rounded-lg shadow-md overflow-hidden">
@@ -707,7 +659,7 @@ export default function Game() {
                     ) : (
                       <PollDisplay
                         options={currentActivation.options || []}
-                        votes={pollVotesByText}
+                        votes={pollVotes}
                         totalVotes={totalVotes}
                         displayType={currentActivation.poll_display_type || 'bar'}
                         selectedAnswer={selectedAnswer}

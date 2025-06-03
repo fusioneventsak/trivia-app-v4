@@ -1,149 +1,8 @@
 import { supabase } from './supabase';
 
-interface PollVotes {
-  [key: string]: number;
-}
+// Simple functions to get current state of a poll that don't use subscriptions
 
-// Get poll votes for an activation
-export const getPollVotes = async (activationId: string): Promise<PollVotes> => {
-  try {
-    console.log(`Fetching poll votes for activation ${activationId}`);
-    
-    // First get the activation to get the options
-    const { data: activation, error: actError } = await supabase
-      .from('activations')
-      .select('options')
-      .eq('id', activationId)
-      .single();
-    
-    if (actError) {
-      console.error('Error fetching activation options:', actError);
-      return {};
-    }
-    
-    // Initialize votes object with zeros for all options
-    const votes: PollVotes = {};
-    if (activation?.options) {
-      activation.options.forEach((option: any) => {
-        if (option.id) {
-          votes[option.id] = 0;
-        } else if (option.text) {
-          // Fallback to using text as key if no ID
-          votes[option.text] = 0;
-        }
-      });
-    }
-    
-    // Get all votes from the poll_votes table
-    const { data, error } = await supabase
-      .from('poll_votes')
-      .select('option_id, option_text')
-      .eq('activation_id', activationId);
-      
-    if (error) {
-      console.error('Error fetching poll votes:', error);
-      return votes; // Return initialized zeros
-    }
-    
-    // Count votes
-    data?.forEach(vote => {
-      // Prefer option_id if available
-      if (vote.option_id && votes[vote.option_id] !== undefined) {
-        votes[vote.option_id] = (votes[vote.option_id] || 0) + 1;
-      } 
-      // Fall back to option_text for backward compatibility
-      else if (vote.option_text) {
-        // Try to find the option ID that matches this text
-        const matchingOption = activation?.options?.find(
-          (opt: any) => opt.text === vote.option_text
-        );
-        
-        if (matchingOption?.id) {
-          votes[matchingOption.id] = (votes[matchingOption.id] || 0) + 1;
-        } else {
-          // Last resort: use the text as the key
-          votes[vote.option_text] = (votes[vote.option_text] || 0) + 1;
-        }
-      }
-    });
-    
-    console.log('Poll votes fetched:', votes);
-    return votes;
-  } catch (err) {
-    console.error('Error in getPollVotes:', err);
-    return {};
-  }
-};
-
-// Subscribe to poll votes changes
-export const subscribeToPollVotes = (
-  activationId: string, 
-  onVotesUpdate: (votes: PollVotes) => void,
-  onPollStateChange?: (state: 'pending' | 'voting' | 'closed') => void
-): (() => void) => {
-  console.log(`Setting up poll votes subscription for activation ${activationId}`);
-  
-  // Immediately fetch initial votes
-  getPollVotes(activationId).then(votes => {
-    console.log(`Initial poll votes for ${activationId}:`, votes);
-    onVotesUpdate(votes);
-  }).catch(err => {
-    console.error(`Error fetching initial poll votes for ${activationId}:`, err);
-  });
-  
-  // Subscribe to poll_votes changes
-  const votesChannel = supabase
-    .channel(`poll_votes_${activationId}`)
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'poll_votes',
-      filter: `activation_id=eq.${activationId}`
-    }, async () => {
-      console.log('Poll votes changed, fetching updated votes');
-      try {
-        const votes = await getPollVotes(activationId);
-        console.log(`Updated poll votes for ${activationId}:`, votes);
-        onVotesUpdate(votes);
-      } catch (err) {
-        console.error(`Error fetching updated poll votes for ${activationId}:`, err);
-      }
-    })
-    .subscribe((status) => {
-      console.log(`Poll votes subscription status for ${activationId}: ${status}`);
-    });
-    
-  // Subscribe to activation changes (for poll state)
-  const activationChannel = supabase
-    .channel(`activation_poll_state_${activationId}`)
-    .on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'activations',
-      filter: `id=eq.${activationId}`
-    }, (payload) => {
-      if (payload.new?.poll_state && onPollStateChange) {
-        console.log('Poll state changed:', payload.new.poll_state);
-        onPollStateChange(payload.new.poll_state);
-      }
-    })
-    .subscribe((status) => {
-      console.log(`Poll state subscription status for ${activationId}: ${status}`);
-    });
-  
-  // Return cleanup function
-  return () => {
-    console.log(`Cleaning up poll subscriptions for activation ${activationId}`);
-    try {
-      votesChannel.unsubscribe();
-      activationChannel.unsubscribe();
-    } catch (err) {
-      console.error(`Error unsubscribing from poll channels for ${activationId}:`, err);
-    }
-  };
-};
-
-// Check if a player has already voted
+// Simple check if a player has already voted
 export const checkIfPlayerVoted = async (
   activationId: string,
   playerId: string
@@ -168,39 +27,63 @@ export const checkIfPlayerVoted = async (
   }
 };
 
+// Get all votes for an activation (one-time fetch, no subscription)
+export const getPollVotes = async (activationId: string): Promise<Record<string, number>> => {
+  try {
+    console.log(`Fetching poll votes for activation ${activationId}`);
+    
+    // Get all votes from poll_votes table
+    const { data, error } = await supabase
+      .from('poll_votes')
+      .select('option_id')
+      .eq('activation_id', activationId);
+      
+    if (error) {
+      console.error('Error fetching poll votes:', error);
+      return {};
+    }
+    
+    // Count votes by option
+    const votes: Record<string, number> = {};
+    
+    data.forEach(vote => {
+      if (!vote.option_id) return;
+      
+      votes[vote.option_id] = (votes[vote.option_id] || 0) + 1;
+    });
+    
+    console.log('Poll votes fetched:', votes);
+    return votes;
+  } catch (err) {
+    console.error('Error in getPollVotes:', err);
+    return {};
+  }
+};
+
+// The minimum subscription function needed for compatibility
+// Just returns a cleanup function
+export const subscribeToPollVotes = (
+  activationId: string, 
+  onVotesUpdate: (votes: Record<string, number>) => void,
+  onPollStateChange?: (state: 'pending' | 'voting' | 'closed') => void
+): (() => void) => {
+  console.log(`Legacy subscribeToPollVotes called for ${activationId} - using usePollManager hook instead`);
+  return () => {};
+};
+
+// Legacy submitPollVote for backward compatibility
 export const submitPollVote = async (
   activationId: string,
   playerId: string,
-  optionText: string
+  optionId: string
 ): Promise<{ success: boolean; error?: string }> => {
+  console.log('Legacy submitPollVote called - using usePollManager hook instead');
+  
   try {
-    // First check if player already voted
+    // Check if player already voted
     const hasVoted = await checkIfPlayerVoted(activationId, playerId);
     if (hasVoted) {
       return { success: false, error: 'You have already voted in this poll' };
-    }
-    
-    // Get the activation to find the option ID
-    const { data: activation, error: actError } = await supabase
-      .from('activations')
-      .select('options')
-      .eq('id', activationId)
-      .single();
-      
-    if (actError) {
-      console.error('Error fetching activation:', actError);
-      return { success: false, error: 'Failed to fetch activation details' };
-    }
-    
-    // Find the option ID that matches the text
-    let optionId: string | null = null;
-    if (activation?.options) {
-      const matchingOption = activation.options.find(
-        (opt: any) => opt.text === optionText
-      );
-      if (matchingOption?.id) {
-        optionId = matchingOption.id;
-      }
     }
     
     // Submit the vote
@@ -210,7 +93,7 @@ export const submitPollVote = async (
         activation_id: activationId,
         player_id: playerId,
         option_id: optionId,
-        option_text: optionText
+        option_text: '' // Required but not used anymore
       });
       
     if (error) {
