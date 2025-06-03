@@ -16,13 +16,13 @@ export const checkIfPlayerVoted = async (
       .maybeSingle();
       
     if (error) {
-      console.error('Error checking if player voted:', error);
+      console.warn('Error checking if player voted:', error);
       return false;
     }
     
     return !!data;
   } catch (err) {
-    console.error('Error in checkIfPlayerVoted:', err);
+    console.warn('Error in checkIfPlayerVoted:', err);
     return false;
   }
 };
@@ -35,11 +35,11 @@ export const getPollVotes = async (activationId: string): Promise<Record<string,
     // Get all votes from poll_votes table
     const { data, error } = await supabase
       .from('poll_votes')
-      .select('option_id')
+      .select('option_id, option_text')
       .eq('activation_id', activationId);
       
     if (error) {
-      console.error('Error fetching poll votes:', error);
+      console.warn('Error fetching poll votes:', error);
       return {};
     }
     
@@ -47,15 +47,21 @@ export const getPollVotes = async (activationId: string): Promise<Record<string,
     const votes: Record<string, number> = {};
     
     data.forEach(vote => {
-      if (!vote.option_id) return;
+      // First try by option_id
+      if (vote.option_id) {
+        votes[vote.option_id] = (votes[vote.option_id] || 0) + 1;
+      }
       
-      votes[vote.option_id] = (votes[vote.option_id] || 0) + 1;
+      // Also count by text for backward compatibility
+      if (vote.option_text) {
+        votes[vote.option_text] = (votes[vote.option_text] || 0) + 1;
+      }
     });
     
     console.log('Poll votes fetched:', votes);
     return votes;
   } catch (err) {
-    console.error('Error in getPollVotes:', err);
+    console.warn('Error in getPollVotes:', err);
     return {};
   }
 };
@@ -75,9 +81,10 @@ export const subscribeToPollVotes = (
 export const submitPollVote = async (
   activationId: string,
   playerId: string,
-  optionId: string
+  optionId: string,
+  optionText?: string
 ): Promise<{ success: boolean; error?: string }> => {
-  console.log('Legacy submitPollVote called - using usePollManager hook instead');
+  console.warn('Legacy submitPollVote called - using usePollManager hook instead');
   
   try {
     // Check if player already voted
@@ -93,11 +100,11 @@ export const submitPollVote = async (
         activation_id: activationId,
         player_id: playerId,
         option_id: optionId,
-        option_text: '' // Required but not used anymore
+        option_text: optionText || '' // Required but may be empty if not provided
       });
       
     if (error) {
-      console.error('Error submitting poll vote:', error);
+      console.warn('Error submitting poll vote:', error);
       // Check for unique constraint violation
       if (error.code === '23505') {
         return { success: false, error: 'You have already voted in this poll' };
@@ -108,7 +115,7 @@ export const submitPollVote = async (
     console.log('Poll vote submitted successfully');
     return { success: true };
   } catch (err: any) {
-    console.error('Error in submitPollVote:', err);
+    console.warn('Error in submitPollVote:', err);
     return { success: false, error: err.message || 'Failed to submit vote' };
   }
 };

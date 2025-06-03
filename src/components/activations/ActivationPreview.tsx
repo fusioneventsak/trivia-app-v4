@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Send, Trophy, Users, Clock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CheckCircle, XCircle, Send, Trophy, Users, Clock, Lock, PlayCircle } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import CountdownTimer from '../ui/CountdownTimer';
 import PollStateIndicator from '../ui/PollStateIndicator';
@@ -341,7 +341,15 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
                 alt="Question media" 
                 className="max-h-40 object-contain"
                 onError={(e) => {
-                  e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Preview';
+                  console.warn(`Failed to load question media: ${activation.media_url}`);
+                  e.currentTarget.style.display = 'none';
+                  const parent = e.currentTarget.parentElement;
+                  if (parent && !parent.querySelector('.fallback-icon')) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'fallback-icon w-full h-40 flex items-center justify-center text-gray-400 bg-gray-100 rounded';
+                    fallback.textContent = 'Image not available';
+                    parent.appendChild(fallback);
+                  }
                 }}
               />
             </div>
@@ -471,7 +479,15 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
                             alt={option.text}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                              console.warn(`Failed to load poll option image: ${option.media_url}`);
+                              e.currentTarget.style.display = 'none';
+                              const parent = e.currentTarget.parentElement;
+                              if (parent && !parent.querySelector('.fallback-icon')) {
+                                const fallback = document.createElement('div');
+                                fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-white/50 text-xs';
+                                fallback.textContent = '?';
+                                parent.appendChild(fallback);
+                              }
                             }}
                           />
                         </div>
@@ -502,7 +518,15 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
                             alt={option.text}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                              console.warn(`Failed to load poll option image: ${option.media_url}`);
+                              e.currentTarget.style.display = 'none';
+                              const parent = e.currentTarget.parentElement;
+                              if (parent && !parent.querySelector('.fallback-icon')) {
+                                const fallback = document.createElement('div');
+                                fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-white/50 text-xs';
+                                fallback.textContent = '?';
+                                parent.appendChild(fallback);
+                              }
                             }}
                           />
                         </div>
@@ -551,7 +575,15 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
                             alt={option.text}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                              console.warn(`Failed to load poll option image: ${option.media_url}`);
+                              e.currentTarget.style.display = 'none';
+                              const parent = e.currentTarget.parentElement;
+                              if (parent && !parent.querySelector('.fallback-icon')) {
+                                const fallback = document.createElement('div');
+                                fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-white/50 text-xs';
+                                fallback.textContent = '?';
+                                parent.appendChild(fallback);
+                              }
                             }}
                           />
                         </div>
@@ -716,7 +748,15 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
                           alt={option.text}
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                            console.warn(`Failed to load option image: ${option.media_url}`);
+                            e.currentTarget.style.display = 'none';
+                            const parent = e.currentTarget.parentElement;
+                            if (parent && !parent.querySelector('.fallback-icon')) {
+                              const fallback = document.createElement('div');
+                              fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-gray-400 bg-gray-100';
+                              fallback.textContent = '?';
+                              parent.appendChild(fallback);
+                            }
                           }}
                         />
                       </div>
@@ -835,7 +875,15 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
                             alt={option.text}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                              console.warn(`Failed to load poll option image: ${option.media_url}`);
+                              e.currentTarget.style.display = 'none';
+                              const parent = e.currentTarget.parentElement;
+                              if (parent && !parent.querySelector('.fallback-icon')) {
+                                const fallback = document.createElement('div');
+                                fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-gray-400 bg-gray-100';
+                                fallback.textContent = '?';
+                                parent.appendChild(fallback);
+                              }
                             }}
                           />
                         </div>

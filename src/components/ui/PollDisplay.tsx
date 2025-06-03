@@ -123,11 +123,18 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                       <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-1">
                         <img
                           src={getStorageUrl(option.media_url)}
-                          alt={option.text}
+                          alt=""
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            console.error('Error loading poll option image:', option.media_url);
-                            e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                            console.warn(`Failed to load poll option image: ${option.media_url}`);
+                            e.currentTarget.style.display = 'none';
+                            const parent = e.currentTarget.parentElement;
+                            if (parent && !parent.querySelector('.fallback-icon')) {
+                              const fallback = document.createElement('div');
+                              fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-white/50 text-xs';
+                              fallback.textContent = '?';
+                              parent.appendChild(fallback);
+                            }
                           }}
                         />
                       </div>
@@ -198,7 +205,15 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                         alt=""
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                          console.warn(`Failed to load poll option image: ${option.media_url}`);
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent && !parent.querySelector('.fallback-icon')) {
+                            const fallback = document.createElement('div');
+                            fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-white/50 text-xs';
+                            fallback.textContent = '?';
+                            parent.appendChild(fallback);
+                          }
                         }}
                       />
                     </div>
@@ -240,11 +255,18 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                       <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-black/20 mr-2 border border-white/30">
                         <img
                           src={getStorageUrl(option.media_url)}
-                          alt={option.text}
+                          alt=""
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            console.error('Error loading poll option image:', option.media_url);
-                            e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                            console.warn(`Failed to load poll option image: ${option.media_url}`);
+                            e.currentTarget.style.display = 'none';
+                            const parent = e.currentTarget.parentElement;
+                            if (parent && !parent.querySelector('.fallback-icon')) {
+                              const fallback = document.createElement('div');
+                              fallback.className = 'fallback-icon w-full h-full flex items-center justify-center text-white/50 text-xs';
+                              fallback.textContent = '?';
+                              parent.appendChild(fallback);
+                            }
                           }}
                         />
                       </div>
