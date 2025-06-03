@@ -1,7 +1,27 @@
 Here's the fixed version with all missing closing brackets added:
 
 ```javascript
-                      );
+                                   className="w-full h-full object-cover"
+                                   onError={(e) => {
+                                     if (debugMode) {
+                                       console.log('Error loading option image:', option.media_url);
+                                     }
+                                     e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
+                                   }}
+                                 />
+                               </div>
+                             )}
+                             
+                             <div className="flex-1 font-medium text-white">{option.text}</div>
+                           </div>
+                           
+                           {showAnswers && isCorrect && (
+                             <div className="mt-2 text-sm text-green-200">
+                               Correct Answer
+                             </div>
+                           )}
+                         </div>
+                       );
                     })}
                   </div>
                 )}
@@ -32,7 +52,8 @@ Here's the fixed version with all missing closing brackets added:
                       totalVotes={totalVotes}
                       displayType={currentActivation.poll_display_type || 'bar'}
                       resultFormat={currentActivation.poll_result_format || 'both'}
-                      state={pollState}
+                     showResults={pollState === 'closed'}
+                     theme={activeTheme}
                     />
                   </div>
                 )}
