@@ -256,15 +256,7 @@ export default function Results() {
     // Store previous activation type before updating
     if (isNewActivation) {
       setPreviousActivationType(currentActivation?.type || null);
-    }
     
-    // Update current activation ID ref
-    currentActivationIdRef.current = activation?.id || null;
-    
-    setCurrentActivation(activation);
-    
-    // Only clean up and reset if it's a new activation
-    if (isNewActivation) {
       if (debugMode) {
         console.log('New activation detected, cleaning up previous subscriptions');
       }
@@ -287,6 +279,11 @@ export default function Results() {
       setTotalVotes(0);
     }
     
+    // Update current activation ID ref
+    currentActivationIdRef.current = activation?.id || null;
+    
+    setCurrentActivation(activation);
+    
     // Update poll state (this can change without changing activation)
     setPollState(activation?.poll_state || 'pending');
     
@@ -295,44 +292,38 @@ export default function Results() {
       if (activation.type === 'poll' && activation.options) {
         console.log('Setting up poll subscription for activation:', activation.id);
         
-        // Only init poll votes if it's a new activation
-        if (isNewActivation) {
+        // Only init poll votes if it's a new activation or we don't have a subscription
+        if (isNewActivation || !pollSubscriptionRef.current) {
           console.log('Initializing poll votes for new activation');
           const votes = await getPollVotes(activation.id);
           setPollVotes(votes);
           setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
-        }
-        
-        // Always set up a fresh poll subscription to ensure it's active
-        if (pollSubscriptionRef.current) {
-          console.log('Cleaning up existing poll subscription before creating new one');
-          pollSubscriptionRef.current();
-          pollSubscriptionRef.current = null;
-        }
-        
-        console.log('Creating new poll subscription');
-        try {
-          const cleanup = subscribeToPollVotes(
-            activation.id, 
-            (votes) => {
-              // Only update if this is still the current activation
-              if (currentActivationIdRef.current === activation.id) {
-                console.log("Results page poll votes updated:", votes);
-                setPollVotes(votes);
-                setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+          
+          // Set up a fresh poll subscription
+          console.log('Creating new poll subscription');
+          try {
+            const cleanup = subscribeToPollVotes(
+              activation.id, 
+              (votes) => {
+                // Only update if this is still the current activation
+                if (currentActivationIdRef.current === activation.id) {
+                  console.log("Results page poll votes updated:", votes);
+                  setPollVotes(votes);
+                  setTotalVotes(Object.values(votes).reduce((sum, count) => sum + count, 0));
+                }
+              },
+              (state) => {
+                // Only update if this is still the current activation
+                if (currentActivationIdRef.current === activation.id) {
+                  console.log("Results page poll state changed:", state);
+                  setPollState(state);
+                }
               }
-            },
-            (state) => {
-              // Only update if this is still the current activation
-              if (currentActivationIdRef.current === activation.id) {
-                console.log("Results page poll state changed:", state);
-                setPollState(state);
-              }
-            }
-          );
-          pollSubscriptionRef.current = cleanup;
-        } catch (err) {
-          console.error('Error setting up poll subscription:', err);
+            );
+            pollSubscriptionRef.current = cleanup;
+          } catch (err) {
+            console.error('Error setting up poll subscription:', err);
+          }
         }
       }
       
