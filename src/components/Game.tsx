@@ -64,6 +64,7 @@ export default function Game() {
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [showAnswers, setShowAnswers] = useState(true);
   const [showNetworkStatus, setShowNetworkStatus] = useState(false);
+  const [debugId] = useState(`game-${Math.random().toString(36).substring(2, 7)}`);
 
   // Poll management - Now using the simplified polling version
   const {
@@ -79,6 +80,17 @@ export default function Game() {
     options: currentActivation?.options,
     playerId: currentPlayerId
   });
+
+  // Log poll data for debugging
+  useEffect(() => {
+    console.log(`[${debugId}] Poll data updated:`, {
+      pollVotes,
+      totalVotes,
+      hasVoted: pollVoted,
+      selectedOptionId: pollSelectedOptionId,
+      pollState
+    });
+  }, [pollVotes, totalVotes, pollVoted, pollSelectedOptionId, pollState, debugId]);
 
   // Check if player exists
   useEffect(() => {
@@ -106,7 +118,7 @@ export default function Game() {
           schema: 'public',
           table: 'game_sessions',
           filter: `room_id=eq.${roomId}`
-        }, async (payload) => {
+        }, async (payload: any) => {
           console.log('Game session change:', payload);
           if (payload.new?.current_activation) {
             await fetchCurrentActivation(payload.new.current_activation);
@@ -125,7 +137,7 @@ export default function Game() {
           schema: 'public',
           table: 'players',
           filter: `id=eq.${currentPlayerId}`
-        }, (payload) => {
+        }, (payload: any) => {
           if (payload.new?.score !== undefined) {
             setPlayerScore(payload.new.score);
             updatePlayerScore(currentPlayerId, payload.new.score);
@@ -148,6 +160,7 @@ export default function Game() {
   
   const fetchRoomAndActivation = async () => {
     try {
+      console.log(`[${debugId}] Fetching room and activation data for room: ${roomId}`);
       setLoading(true);
       
       // Fetch room
@@ -158,6 +171,7 @@ export default function Game() {
         .single();
         
       if (roomError) throw roomError;
+      console.log(`[${debugId}] Room data fetched:`, roomData.name);
       setRoom(roomData);
       
       // Fetch current player data
@@ -168,6 +182,7 @@ export default function Game() {
         .single();
         
       if (playerError) throw playerError;
+      console.log(`[${debugId}] Player data fetched:`, playerData.name);
       
       setPlayerScore(playerData.score || 0);
       addPlayer(playerData);
@@ -180,6 +195,7 @@ export default function Game() {
         .single();
         
       if (sessionData?.current_activation) {
+        console.log(`[${debugId}] Current activation found:`, sessionData.current_activation);
         await fetchCurrentActivation(sessionData.current_activation);
       }
       
@@ -193,6 +209,7 @@ export default function Game() {
   
   const fetchCurrentActivation = async (activationId: string) => {
     try {
+      console.log(`[${debugId}] Fetching activation: ${activationId}`);
       // Use retry function for better error handling
       const { data, error } = await retry(async () => {
         return await supabase
@@ -204,6 +221,7 @@ export default function Game() {
         
       if (error) throw error;
       
+      console.log(`[${debugId}] Activation fetched successfully:`, data.type);
       setCurrentActivation(data);
       resetAnswerState();
       
@@ -230,6 +248,7 @@ export default function Game() {
       }
       
     } catch (err: any) {
+      console.log(`[${debugId}] Error fetching activation:`, err.message || err);
       console.error('Error fetching activation:', err.message || err);
       
       // Check if it's a network error
@@ -254,6 +273,7 @@ export default function Game() {
   
   const handleMultipleChoiceAnswer = async (answer: string, optionId?: string) => {
     if (hasAnswered || !currentActivation || !currentPlayerId) return;
+    console.log(`[${debugId}] Handling multiple choice answer: ${answer}`);
     
     setSelectedAnswer(answer);
     if (optionId) setSelectedOptionId(optionId);
@@ -292,6 +312,7 @@ export default function Game() {
   const handleTextAnswerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (hasAnswered || !currentActivation || !currentPlayerId || !textAnswer.trim()) return;
+    console.log(`[${debugId}] Handling text answer submission: ${textAnswer}`);
     
     setHasAnswered(true);
     
@@ -330,6 +351,7 @@ export default function Game() {
   
   const handlePollVote = async (answer: string, optionId?: string) => {
     if (!currentActivation || !currentPlayerId) {
+      console.log(`[${debugId}] Cannot submit poll vote - missing activation or player ID`);
       setError('Unable to submit vote. Missing activation or player ID.');
       return;
     }
@@ -337,6 +359,7 @@ export default function Game() {
     // Ensure we have an option ID
     if (!optionId) {
       // Try to find the option ID from the text
+      console.log(`[${debugId}] Finding option ID for text: ${answer}`);
       const option = currentActivation.options?.find(opt => opt.text === answer);
       if (!option?.id) {
         setError('Invalid option selected');
@@ -345,12 +368,14 @@ export default function Game() {
       optionId = option.id;
     }
     
+    console.log(`[${debugId}] Submitting poll vote for option: ${optionId}, text: ${answer}`);
     // Store the selected answer text for display
     setSelectedAnswer(answer);
     setSelectedOptionId(optionId);
     
     // Submit the vote using the poll manager
     const result = await submitPollVote(optionId);
+    console.log(`[${debugId}] Poll vote submission result:`, result);
     
     if (result.success) {
       // Award participation points for voting
@@ -377,6 +402,7 @@ export default function Game() {
   
   const updatePlayerScoreInDB = async (points: number, isCorrect: boolean, responseTimeMs: number) => {
     if (!currentPlayerId) return;
+    console.log(`[${debugId}] Updating player score: +${points} points, correct: ${isCorrect}`);
     
     try {
       // Get current player data
@@ -419,6 +445,7 @@ export default function Game() {
         .eq('id', currentPlayerId);
         
       if (updateError) throw updateError;
+      console.log(`[${debugId}] Player score updated successfully to ${playerData.score + points}`);
       
       // Update local state
       setPlayerScore(playerData.score + points);
@@ -426,6 +453,7 @@ export default function Game() {
       
     } catch (err: any) {
       console.error('Error updating player score:', err);
+      logError(err, 'Game.updatePlayerScoreInDB', currentPlayerId);
       setError('Failed to update score');
     }
   };
@@ -433,6 +461,7 @@ export default function Game() {
   const renderMediaContent = () => {
     if (!currentActivation?.media_url || currentActivation.media_type === 'none') return null;
     
+    console.log(`[${debugId}] Rendering media content: ${currentActivation.media_type}, ${currentActivation.media_url}`);
     return (
       <div className="flex justify-center items-center mb-6">
         {currentActivation.media_type === 'youtube' ? (

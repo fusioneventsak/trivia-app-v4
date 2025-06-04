@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { retry, isNetworkError } from '../lib/error-handling';
+import { logError } from '../lib/error-handling';
 
 interface PollOption {
   id?: string;
@@ -53,17 +54,22 @@ export function usePollManager({
   const [isLoading, setIsLoading] = useState(false);
   
   const currentActivationIdRef = useRef<string | null>(null);
+  const debugIdRef = useRef<string>(`poll-${Math.random().toString(36).substring(2, 7)}`);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
   const errorCountRef = useRef<number>(0);
+  const voteCountRef = useRef<number>(0);
 
   // Initialize poll data
   const initializePoll = useCallback(async () => {
     if (!activationId) return;
     
+    console.log(`[${debugIdRef.current}] Initializing poll for activation: ${activationId}, player: ${playerId || 'none'}`);
+    
     // Don't fetch too frequently (throttle to once per second)
     const now = Date.now();
     if (now - lastFetchTimeRef.current < 1000) {
+      console.log(`[${debugIdRef.current}] Skipping poll fetch - throttled`);
       return;
     }
     lastFetchTimeRef.current = now;
@@ -80,10 +86,11 @@ export function usePollManager({
       }, 2);
       
       if (activationError) {
-        console.error('Error fetching activation:', activationError);
+        console.error(`[${debugIdRef.current}] Error fetching activation:`, activationError);
         errorCountRef.current++;
         return;
       } else if (activation) {
+        console.log(`[${debugIdRef.current}] Activation fetched successfully. Poll state: ${activation.poll_state}`);
         setPollState(activation.poll_state || 'pending');
         
         // Initialize vote counts
@@ -110,10 +117,12 @@ export function usePollManager({
         }, 2);
 
         if (voteError) {
-          console.error('Error fetching votes:', voteError);
+          console.error(`[${debugIdRef.current}] Error fetching votes:`, voteError);
           errorCountRef.current++;
           return;
         } else if (voteData) {
+          console.log(`[${debugIdRef.current}] Fetched ${voteData.length} votes for activation ${activationId}`);
+          
           // Count votes
           voteData.forEach((vote: PollVote) => {
             // Count by option ID if available
@@ -132,16 +141,23 @@ export function usePollManager({
               setSelectedOptionId(vote.option_id);
             }
           });
+          
+          // Store the vote count for comparison
+          voteCountRef.current = voteData.length;
         }
 
         setVotes(voteCounts);
         setVotesByText(textVoteCounts);
         
+        console.log(`[${debugIdRef.current}] Poll initialized with ${Object.values(textVoteCounts).reduce((sum, count) => sum + count, 0)} total votes`);
+        console.log(`[${debugIdRef.current}] Vote counts by text:`, textVoteCounts);
+        
         // Reset error count on successful fetch
         errorCountRef.current = 0;
       }
     } catch (error) {
-      console.error('Error initializing poll:', error);
+      console.error(`[${debugIdRef.current}] Error initializing poll:`, error);
+      logError(error, 'usePollManager.initializePoll', playerId || undefined);
       errorCountRef.current++;
     } finally {
       setIsLoading(false);
@@ -150,6 +166,7 @@ export function usePollManager({
 
   // Reset poll state
   const resetPoll = useCallback(() => {
+    console.log(`[${debugIdRef.current}] Resetting poll state`);
     setVotes({});
     setVotesByText({});
     setHasVoted(false);
@@ -169,6 +186,7 @@ export function usePollManager({
   // Effect to handle activation changes
   useEffect(() => {
     if (activationId !== currentActivationIdRef.current) {
+      console.log(`[${debugIdRef.current}] Activation changed from ${currentActivationIdRef.current} to ${activationId}`);
       currentActivationIdRef.current = activationId;
       resetPoll();
     }
@@ -177,6 +195,7 @@ export function usePollManager({
   // Set up real-time subscriptions
   useEffect(() => {
     if (!activationId) return;
+    console.log(`[${debugIdRef.current}] Setting up poll for activation ${activationId}`);
     
     // Initial fetch
     initializePoll();
@@ -190,6 +209,7 @@ export function usePollManager({
     
     // Cleanup
     return () => {
+      console.log(`[${debugIdRef.current}] Cleaning up poll for activation ${activationId}`);
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
@@ -199,6 +219,7 @@ export function usePollManager({
 
   // Submit vote
   const submitVote = useCallback(async (optionId: string): Promise<{ success: boolean; error?: string }> => {
+    console.log(`[${debugIdRef.current}] Submitting vote for option ${optionId}`);
     if (!activationId || !playerId) {
       return { success: false, error: 'Missing activation or player ID' };
     }
@@ -220,7 +241,7 @@ export function usePollManager({
           return { success: false, error: 'Invalid option' };
         }
 
-        console.log('Submitting vote:', { activationId, playerId, optionId, optionText: option.text });
+        console.log(`[${debugIdRef.current}] Submitting vote:`, { activationId, playerId, optionId, optionText: option.text });
 
         // Submit the vote
         const { error } = await supabase
@@ -235,6 +256,7 @@ export function usePollManager({
         if (error) {
           // Check for duplicate vote
           if (error.code === '23505') {
+            console.log(`[${debugIdRef.current}] Duplicate vote detected`);
             return { success: false, error: 'You have already voted in this poll' };
           }
           throw error;
@@ -255,7 +277,7 @@ export function usePollManager({
           [option.text]: (prev[option.text] || 0) + 1
         }));
 
-        console.log('Vote submitted successfully');
+        console.log(`[${debugIdRef.current}] Vote submitted successfully`);
         
         // Force a refresh to get the latest data
         setTimeout(initializePoll, 500);
@@ -263,7 +285,8 @@ export function usePollManager({
         return { success: true };
       }, 3);
     } catch (error: any) {
-      console.error('Error submitting vote:', error);
+      console.error(`[${debugIdRef.current}] Error submitting vote:`, error);
+      logError(error, 'usePollManager.submitVote', playerId);
       
       // Check if it's a network error
       if (isNetworkError(error)) {
@@ -280,6 +303,7 @@ export function usePollManager({
           localStorage.setItem('pendingPollVotes', JSON.stringify(pendingVotes));
           
           // Update UI optimistically
+          console.log(`[${debugIdRef.current}] Vote saved locally due to network error`);
           setHasVoted(true);
           setSelectedOptionId(optionId);
           
@@ -307,6 +331,7 @@ export function usePollManager({
   // Calculate total votes
   const getTotalVotes = useCallback((): number => {
     // Use votesByText as the source of truth
+    console.log(`[${debugIdRef.current}] Calculating total votes from:`, votesByText);
     return Object.values(votesByText).reduce((sum, count) => sum + count, 0);
   }, [votesByText]);
 

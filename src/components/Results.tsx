@@ -85,6 +85,7 @@ export default function Results() {
   const [debugMode, setDebugMode] = useState(false);
   const [activationRefreshCount, setActivationRefreshCount] = useState(0);
   const activationChannelRef = useRef<any>(null);
+  const debugIdRef = useRef<string>(`results-${Math.random().toString(36).substring(2, 7)}`);
   const currentActivationIdRef = useRef<string | null>(null);
   const gameSessionChannelRef = useRef<any>(null);
   const [showNetworkStatus, setShowNetworkStatus] = useState(false);
@@ -100,6 +101,15 @@ export default function Results() {
     options: currentActivation?.options,
     playerId: null // Results page doesn't have a player
   });
+
+  // Log poll data for debugging
+  useEffect(() => {
+    console.log(`[${debugIdRef.current}] Poll data updated:`, {
+      pollVotesByText,
+      totalVotes,
+      pollState
+    });
+  }, [pollVotesByText, totalVotes, pollState]);
 
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -143,6 +153,7 @@ export default function Results() {
     const fetchRoom = async () => {
       try {
         setLoading(true);
+        console.log(`[${debugIdRef.current}] Fetching room data for code: ${code}`);
         
         // Get room by code using maybeSingle() instead of single()
         const { data: roomData, error: roomError } = await retry(async () => {
@@ -156,6 +167,7 @@ export default function Results() {
         if (roomError) throw roomError;
         
         // Check if room exists
+        console.log(`[${debugIdRef.current}] Room data fetched:`, roomData?.name || 'Not found');
         if (!roomData) {
           throw new Error('Room not found or is inactive');
         }
@@ -174,6 +186,7 @@ export default function Results() {
         if (playerError) throw playerError;
         
         if (debugMode) {
+          console.log(`[${debugIdRef.current}] Fetched ${playerData?.length || 0} players`);
           console.log('Fetched players data:', playerData);
         }
         
@@ -193,17 +206,20 @@ export default function Results() {
           
         if (sessionError) throw sessionError;
         
+        console.log(`[${debugIdRef.current}] Current activation ID:`, sessionData?.current_activation || 'None');
         if (sessionData?.current_activation) {
           const { data: activation, error: activationError } = await retry(async () => {
             return await supabase
               .from('activations')
               .select('*')
               .eq('id', sessionData.current_activation)
+              .limit(1)
               .single();
           }, 3);
               
           if (activationError) throw activationError;
           
+          console.log(`[${debugIdRef.current}] Activation fetched:`, activation?.type || 'Unknown type');
           await handleActivationChange(activation);
         } else {
           await handleActivationChange(null);
@@ -216,6 +232,7 @@ export default function Results() {
         
       } catch (err: any) {
         console.error('Error fetching room:', err);
+        logError(err, 'Results.fetchRoom');
         
         // Check if it's a network error
         if (isNetworkError(err)) {
@@ -252,6 +269,7 @@ export default function Results() {
   // Handle activation change
   const handleActivationChange = async (activation: Activation | null) => {
     if (debugMode) {
+      console.log(`[${debugIdRef.current}] Handling activation change:`, activation?.id);
       console.log('Handling activation change:', activation?.id);
     }
     
@@ -259,6 +277,7 @@ export default function Results() {
     const isNewActivation = currentActivationIdRef.current !== activation?.id;
     
     if (debugMode) {
+      console.log(`[${debugIdRef.current}] Is new activation: ${isNewActivation}`);
       console.log('Is new activation:', isNewActivation);
       console.log('Current activation ID ref:', currentActivationIdRef.current);
     }
@@ -271,6 +290,7 @@ export default function Results() {
     // Update current activation ID ref
     currentActivationIdRef.current = activation?.id || null;
     
+    console.log(`[${debugIdRef.current}] Setting current activation:`, activation?.type || 'null');
     setCurrentActivation(activation);
     
     // Setup timer if needed
@@ -285,6 +305,7 @@ export default function Results() {
   // Update player rankings
   const updateRankings = (playerData: Player[]) => {
     // Save previous rankings before updating
+    console.log(`[${debugIdRef.current}] Updating player rankings for ${playerData.length} players`);
     if (Object.keys(playerRankings).length > 0) {
       setPreviousRankings(playerRankings);
     }
@@ -303,6 +324,7 @@ export default function Results() {
   
   // Setup timer when activation changes or timer starts
   const setupTimer = (activation: Activation) => {
+    console.log(`[${debugIdRef.current}] Setting up timer for activation: ${activation.id}`);
     // Clear any existing timer
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
@@ -326,6 +348,7 @@ export default function Results() {
       const elapsedMs = currentTime - startTime;
       const totalTimeMs = activation.time_limit * 1000;
       
+      console.log(`[${debugIdRef.current}] Timer calculation: elapsed=${elapsedMs}ms, total=${totalTimeMs}ms`);
       // If timer has already expired, show answers
       if (elapsedMs >= totalTimeMs) {
         setTimeRemaining(0);
@@ -337,6 +360,7 @@ export default function Results() {
       const remainingMs = totalTimeMs - elapsedMs;
       setTimeRemaining(Math.ceil(remainingMs / 1000));
       setShowAnswers(false);
+      console.log(`[${debugIdRef.current}] Starting timer with ${Math.ceil(remainingMs / 1000)} seconds remaining`);
       
       // Start countdown timer
       timerIntervalRef.current = setInterval(() => {
@@ -360,6 +384,7 @@ export default function Results() {
   
   // Set up real-time subscriptions
   const setupRealtimeSubscriptions = (roomId: string) => {
+    console.log(`[${debugIdRef.current}] Setting up realtime subscriptions for room: ${roomId}`);
     // Subscribe to game session changes
     gameSessionChannelRef.current = supabase
       .channel(`game_session_${roomId}`)
@@ -368,7 +393,7 @@ export default function Results() {
         schema: 'public',
         table: 'game_sessions',
         filter: `room_id=eq.${roomId}`
-      }, async (payload) => {
+      }, async (payload: any) => {
         console.log('Game session change detected:', payload);
         
         // Check if current_activation has changed
@@ -404,7 +429,7 @@ export default function Results() {
           schema: 'public',
           table: 'activations',
           filter: `room_id=eq.${roomId}`
-        },
+        } as any,
         async (payload) => {
           if (currentActivationIdRef.current && payload.new.id === currentActivationIdRef.current) {
             console.log('Current activation updated:', payload.new.id);
@@ -435,7 +460,7 @@ export default function Results() {
           schema: 'public',
           table: 'players',
           filter: `room_id=eq.${roomId}`
-        },
+        } as any,
         async () => {
           try {
             const { data, error } = await retry(async () => {
@@ -444,6 +469,7 @@ export default function Results() {
                 .select('id, name, score, room_id, stats')
                 .eq('room_id', roomId)
                 .order('score', { ascending: false });
+                
             }, 3);
               
             if (error) {
@@ -452,6 +478,7 @@ export default function Results() {
             }
             
             // Ensure data is an array
+            console.log(`[${debugIdRef.current}] Player data updated: ${data?.length || 0} players`);
             const playerData = Array.isArray(data) ? data : [];
             
             updateRankings(playerData);
@@ -471,6 +498,7 @@ export default function Results() {
       if (activationChannelRef.current) {
         activationChannelRef.current.unsubscribe();
       }
+      console.log(`[${debugIdRef.current}] Cleaned up realtime subscriptions`);
       playerChannel.unsubscribe();
     };
   };
@@ -478,6 +506,7 @@ export default function Results() {
   const renderMediaContent = () => {
     if (!currentActivation?.media_url || currentActivation.media_type === 'none') {
       if (debugMode) {
+        console.log(`[${debugIdRef.current}] No media to render`);
         console.log('No media to render:', currentActivation?.media_type, currentActivation?.media_url);
       }
       return null;
@@ -485,6 +514,7 @@ export default function Results() {
     
     if (debugMode) {
       console.log('Rendering media:', {
+        id: debugIdRef.current,
         type: currentActivation.media_type,
         url: currentActivation.media_url
       });
@@ -512,6 +542,7 @@ export default function Results() {
   useEffect(() => {
     // Check if the activation type has changed to leaderboard
     if (currentActivation?.type === 'leaderboard' && previousActivationType !== 'leaderboard') {
+      console.log(`[${debugIdRef.current}] Leaderboard activated - firing confetti`);
       // Fire confetti when leaderboard is activated
       confetti({
         particleCount: 150,
@@ -551,6 +582,7 @@ export default function Results() {
 
   if (debugMode) {
     console.log('Current state:', {
+      id: debugIdRef.current,
       room,
       players: players.length,
       currentActivation: currentActivation?.id,
@@ -562,6 +594,7 @@ export default function Results() {
     });
   }
 
+  // Network error state
   if (networkError) {
     return (
       <div 
@@ -586,6 +619,7 @@ export default function Results() {
     );
   }
 
+  // Loading state
   if (loading) {
     return (
       <div 
@@ -600,6 +634,7 @@ export default function Results() {
     );
   }
 
+  // Error state
   if (error || !room) {
     return (
       <div 
@@ -617,6 +652,7 @@ export default function Results() {
     );
   }
 
+  // Main render
   return (
     <div 
       className="min-h-screen p-4 bg-theme-gradient relative"
@@ -624,6 +660,7 @@ export default function Results() {
         background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
       }}
     >
+      {/* Network status indicator */}
       {/* Network status indicator */}
       {showNetworkStatus && (
         <div className="fixed top-0 left-0 right-0 z-50 p-2">
@@ -659,6 +696,7 @@ export default function Results() {
         
         {/* Current Activation */}
         <ErrorBoundary>
+          {/* Render current activation or waiting message */}
           {currentActivation ? (
             <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6">
               {/* Timer Display */}
@@ -675,6 +713,7 @@ export default function Results() {
               )}
               
               {currentActivation.type === 'leaderboard' ? (
+                /* Leaderboard display */
                 <LeaderboardDisplay 
                   roomId={room.id}
                   maxPlayers={currentActivation.max_players || 20}
@@ -683,6 +722,7 @@ export default function Results() {
                   showStats={true}
                 />
               ) : (
+                /* Question/Poll display */
                 <>
                   <h2 className="text-xl font-semibold text-white mb-4">{currentActivation.question}</h2>
                   
@@ -690,6 +730,7 @@ export default function Results() {
                   
                   {/* Multiple Choice Question */}
                   {currentActivation.type === 'multiple_choice' && (
+                    /* Multiple choice options */
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {currentActivation.options?.map((option, index) => {
                         const isCorrect = option.text === currentActivation.correct_answer;
@@ -732,6 +773,7 @@ export default function Results() {
                   
                   {/* Text Answer Question */}
                   {currentActivation.type === 'text_answer' && (
+                    /* Text answer display */
                     <div className="space-y-4">
                       {showAnswers && (
                         <div className="bg-green-400/30 p-4 rounded-xl">
@@ -744,6 +786,7 @@ export default function Results() {
                   
                   {/* Poll */}
                   {currentActivation.type === 'poll' && (
+                    /* Poll display */
                     <div className="space-y-4">
                       <PollStateIndicator state={pollState} />
                       
@@ -769,6 +812,7 @@ export default function Results() {
               )}
             </div>
           ) : (
+            /* Waiting for next question */
             <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6 text-center">
               <h2 className="text-xl font-semibold text-white mb-4">Waiting for next question...</h2>
               <QRCodeDisplay value={getJoinUrl()} theme={activeTheme} />
@@ -777,6 +821,7 @@ export default function Results() {
         </ErrorBoundary>
         
         {/* Player Stats */}
+        /* Player stats display */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 flex items-center">
             <Users className="w-6 h-6 text-white mr-3" />
@@ -818,6 +863,7 @@ export default function Results() {
         </div>
         
         {/* Debug Info */}
+        /* Debug information panel */
         {debugMode && (
           <div className="bg-black/20 backdrop-blur-sm rounded-lg p-4 mb-6 text-white text-sm font-mono">
             <div>Room ID: {room.id}</div>
@@ -827,6 +873,7 @@ export default function Results() {
             <div>Show Answers: {showAnswers.toString()}</div>
             <div>Total Votes: {totalVotes}</div>
             <div>Network Status: {networkError ? 'Offline' : 'Online'}</div>
+            <div>Votes by Text: {JSON.stringify(pollVotesByText)}</div>
             <button
               onClick={() => setActivationRefreshCount(prev => prev + 1)}
               className="mt-2 px-3 py-1 bg-white/10 rounded hover:bg-white/20"
