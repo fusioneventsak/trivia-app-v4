@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase';
 import { Trophy, RefreshCw, Users, Clock, Lock, PlayCircle, AlertCircle, WifiOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import CountdownTimer from './ui/CountdownTimer';
-import MediaDisplay from './ui/MediaDisplay';
 import LeaderboardItem from './ui/LeaderboardItem';
 import { formatPoints } from '../lib/point-calculator';
 import LeaderboardDisplay from './ui/LeaderboardDisplay';
@@ -14,6 +13,8 @@ import PollDisplay from './ui/PollDisplay';
 import QRCodeDisplay from './ui/QRCodeDisplay';
 import { getStorageUrl } from '../lib/utils';
 import { usePollManager } from '../hooks/usePollManager';
+import MediaDisplay from './ui/MediaDisplay';
+import StorageDebug from './debug/StorageDebug';
 
 // Helper function to extract YouTube video ID from various URL formats
 const extractYoutubeVideoId = (url: string): string | null => {
@@ -479,38 +480,17 @@ export default function Results() {
     
     return (
       <div className="flex justify-center items-center mb-4">
-        {currentActivation.media_type === 'youtube' ? (
-          <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
-            <div className="aspect-video max-h-40">
-              <MediaDisplay
-                url={currentActivation.media_url}
-                type={currentActivation.media_type}
-                alt="Question media"
-                className="w-full h-full"
-                fallbackText="Video not available"
-                onError={(e) => {
-                  if (debugMode) {
-                    console.error('Error loading YouTube video:', currentActivation.media_url);
-                  }
-                }}
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
-            <MediaDisplay
-              url={currentActivation.media_url}
-              type={currentActivation.media_type}
-              alt="Question media"
-              className="max-h-40 object-contain"
-              fallbackText="Image not available"
-              onError={(e) => {
-                if (debugMode) {
-                  console.error('Error loading image:', currentActivation.media_url);
-                }
-              }}
-            />
-          </div>
+        <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
+          <MediaDisplay
+            url={currentActivation.media_url}
+            type={currentActivation.media_type}
+            alt="Question media"
+            className="max-h-40 object-contain"
+            fallbackText="Question media not available"
+          />
+        </div>
+        {debugMode && (
+          <StorageDebug mediaUrl={currentActivation.media_url} />
         )}
       </div>
     );
@@ -703,18 +683,15 @@ export default function Results() {
                         >
                           <div className="flex items-center gap-3">
                             {option.media_type !== 'none' && option.media_url && (
-                              <MediaDisplay
-                                url={option.media_url}
-                                type={option.media_type}
-                                alt={option.text}
-                                className="w-10 h-10 rounded-full object-cover"
-                                fallbackText="!"
-                                onError={(e) => {
-                                  if (debugMode) {
-                                    console.log('Error loading option image:', option.media_url);
-                                  }
-                                }}
-                              />
+                              <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
+                                <MediaDisplay
+                                  url={option.media_url}
+                                  type={option.media_type}
+                                  alt={option.text}
+                                  className="w-full h-full object-cover"
+                                  fallbackText="!"
+                                />
+                              </div>
                             )}
                             
                             <div className="flex-1 font-medium text-white">{option.text}</div>
@@ -724,6 +701,10 @@ export default function Results() {
                             <div className="mt-2 text-sm text-green-200">
                               Correct Answer
                             </div>
+                          )}
+                          
+                          {debugMode && option.media_url && (
+                            <StorageDebug mediaUrl={option.media_url} />
                           )}
                         </div>
                       );
