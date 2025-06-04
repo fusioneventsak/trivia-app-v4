@@ -1,9 +1,18 @@
-Here's the fixed version with all missing closing brackets added:
+import { RefreshCw } from 'lucide-react';
 
-```javascript
-// src/components/Results.tsx (complete file - copy and paste this entire file)
-// [Previous code remains unchanged until the end]
-
+export default function Results({ 
+  room,
+  currentActivation,
+  pollState,
+  showAnswers,
+  totalVotes,
+  pollVotesByText,
+  networkError,
+  debugMode
+}) {
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 text-white p-4">
+      <div className="max-w-4xl mx-auto">
         {/* Debug Info */}
         {debugMode && (
           <div className="bg-black/20 backdrop-blur-sm rounded-lg p-4 mb-6 text-white text-sm font-mono overflow-auto max-h-60">
@@ -28,4 +37,3 @@ Here's the fixed version with all missing closing brackets added:
     </div>
   );
 }
-```
