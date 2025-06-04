@@ -5,6 +5,7 @@ import { useGameStore } from '../store/gameStore';
 import { calculatePoints, getTimeBonus } from '../lib/point-calculator';
 import { CheckCircle, XCircle, Send, AlertCircle, Trophy, Clock, Users, ChevronRight, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import MediaDisplay from './ui/MediaDisplay';
 import CountdownTimer from './ui/CountdownTimer';
 import PointAnimation from './ui/PointAnimation';
 import PointsDisplay from './ui/PointsDisplay';
@@ -416,39 +417,31 @@ export default function Game() {
   const renderMediaContent = () => {
     if (!currentActivation?.media_url || currentActivation.media_type === 'none') return null;
     
-    switch (currentActivation.media_type) {
-      case 'image':
-      case 'gif':
-        return (
-          <div className="flex justify-center items-center mb-6">
-            <img 
-              src={getStorageUrl(currentActivation.media_url)} 
-              alt="Question media" 
-              className="max-h-64 rounded-lg shadow-md"
-              onError={(e) => {
-                e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Not+Found';
-              }}
-            />
-          </div>
-        );
-      case 'youtube':
-        const videoId = currentActivation.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/)?.[1];
-        return videoId ? (
-          <div className="flex justify-center items-center mb-6">
-            <div className="w-full max-w-lg rounded-lg shadow-md overflow-hidden">
-              <div className="aspect-video">
-                <iframe
-                  className="w-full h-full"
-                  src={`https://www.youtube.com/embed/${videoId}`}
-                  allowFullScreen
-                />
-              </div>
+    return (
+      <div className="flex justify-center items-center mb-6">
+        {currentActivation.media_type === 'youtube' ? (
+          <div className="w-full max-w-lg rounded-lg shadow-md overflow-hidden">
+            <div className="aspect-video">
+              <MediaDisplay
+                url={currentActivation.media_url}
+                type={currentActivation.media_type}
+                alt="Question media"
+                className="w-full h-full"
+                fallbackText="Video not available"
+              />
             </div>
           </div>
-        ) : null;
-      default:
-        return null;
-    }
+        ) : (
+          <MediaDisplay
+            url={currentActivation.media_url}
+            type={currentActivation.media_type}
+            alt="Question media"
+            className="max-h-64 rounded-lg shadow-md"
+            fallbackText="Image not available"
+          />
+        )}
+      </div>
+    );
   };
   
   if (loading) {
@@ -568,13 +561,12 @@ export default function Game() {
                         >
                           <div className="flex items-center gap-3">
                             {option.media_type !== 'none' && option.media_url && (
-                              <img
-                                src={getStorageUrl(option.media_url)}
+                              <MediaDisplay
+                                url={option.media_url}
+                                type={option.media_type}
                                 alt={option.text}
                                 className="w-12 h-12 rounded-full object-cover"
-                                onError={(e) => {
-                                  e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
-                                }}
+                                fallbackText="!"
                               />
                             )}
                             <span className="text-white font-medium text-lg">{option.text}</span>

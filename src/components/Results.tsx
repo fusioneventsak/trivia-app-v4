@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Trophy, RefreshCw, Users, Clock, Lock, PlayCircle, AlertCircle, WifiOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import CountdownTimer from './ui/CountdownTimer';
+import MediaDisplay from './ui/MediaDisplay';
 import LeaderboardItem from './ui/LeaderboardItem';
 import { formatPoints } from '../lib/point-calculator';
 import LeaderboardDisplay from './ui/LeaderboardDisplay';
@@ -476,54 +477,43 @@ export default function Results() {
       });
     }
     
-    switch (currentActivation.media_type) {
-      case 'image':
-      case 'gif':
-        return (
-          <div className="flex justify-center items-center mb-4">
-            <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
-              <img 
-                src={getStorageUrl(currentActivation.media_url)} 
-                alt="Question media" 
-                className="max-h-40 object-contain"
+    return (
+      <div className="flex justify-center items-center mb-4">
+        {currentActivation.media_type === 'youtube' ? (
+          <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
+            <div className="aspect-video max-h-40">
+              <MediaDisplay
+                url={currentActivation.media_url}
+                type={currentActivation.media_type}
+                alt="Question media"
+                className="w-full h-full"
+                fallbackText="Video not available"
                 onError={(e) => {
-                  console.error('Error loading question image:', currentActivation.media_url);
-                  e.currentTarget.src = 'https://via.placeholder.com/400x300?text=Image+Preview';
+                  if (debugMode) {
+                    console.error('Error loading YouTube video:', currentActivation.media_url);
+                  }
                 }}
               />
             </div>
           </div>
-        );
-      case 'youtube':
-        const videoId = extractYoutubeVideoId(currentActivation.media_url);
-        
-        if (debugMode) {
-          console.log('YouTube video ID:', videoId);
-        }
-        
-        return videoId ? (
-          <div className="flex justify-center items-center mb-4">
-            <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
-              <div className="aspect-video max-h-40">
-                <iframe
-                  className="w-full h-full"
-                  src={`https://www.youtube.com/embed/${videoId}`}
-                  allowFullScreen
-                />
-              </div>
-            </div>
-          </div>
         ) : (
-          <div className="p-3 bg-red-100/20 text-white rounded-lg text-center mb-4">
-            Invalid YouTube URL: {currentActivation.media_url}
+          <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
+            <MediaDisplay
+              url={currentActivation.media_url}
+              type={currentActivation.media_type}
+              alt="Question media"
+              className="max-h-40 object-contain"
+              fallbackText="Image not available"
+              onError={(e) => {
+                if (debugMode) {
+                  console.error('Error loading image:', currentActivation.media_url);
+                }
+              }}
+            />
           </div>
-        );
-      default:
-        if (debugMode) {
-          console.log('Unknown media type:', currentActivation.media_type);
-        }
-        return null;
-    }
+        )}
+      </div>
+    );
   };
 
   // Get room theme or use default theme
@@ -713,19 +703,18 @@ export default function Results() {
                         >
                           <div className="flex items-center gap-3">
                             {option.media_type !== 'none' && option.media_url && (
-                              <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-black/20">
-                                <img
-                                  src={getStorageUrl(option.media_url)}
-                                  alt={option.text}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                   if (debugMode) {
-                                     console.log('Error loading option image:', option.media_url);
-                                   }
-                                   e.currentTarget.src = 'https://via.placeholder.com/100?text=!';
-                                  }}
-                                />
-                              </div>
+                              <MediaDisplay
+                                url={option.media_url}
+                                type={option.media_type}
+                                alt={option.text}
+                                className="w-10 h-10 rounded-full object-cover"
+                                fallbackText="!"
+                                onError={(e) => {
+                                  if (debugMode) {
+                                    console.log('Error loading option image:', option.media_url);
+                                  }
+                                }}
+                              />
                             )}
                             
                             <div className="flex-1 font-medium text-white">{option.text}</div>

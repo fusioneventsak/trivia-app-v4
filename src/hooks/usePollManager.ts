@@ -45,6 +45,7 @@ export function usePollManager({
   playerId 
 }: UsePollManagerProps): UsePollManagerReturn {
   const [votes, setVotes] = useState<PollVoteCount>({});
+  const [votesByText, setVotesByText] = useState<{ [text: string]: number }>({});
   const [hasVoted, setHasVoted] = useState(false);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
@@ -80,13 +81,13 @@ export function usePollManager({
       
       // Initialize vote counts - handle both ID and text-based counting
       const voteCounts: PollVoteCount = {};
-      const votesByText: { [text: string]: number } = {};
+      const textVoteCounts: { [text: string]: number } = {};
       
       pollOptions.forEach((option: PollOption) => {
         if (option.id) {
           voteCounts[option.id] = 0;
         }
-        votesByText[option.text] = 0;
+        textVoteCounts[option.text] = 0;
       });
 
       // Get all votes for this poll
@@ -98,16 +99,24 @@ export function usePollManager({
       if (voteError) {
         console.error('Error fetching votes:', voteError);
       } else if (voteData) {
-        // Count votes by both ID and text
+        // Count votes
         voteData.forEach((vote: PollVote) => {
           // Count by option ID if available
           if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
             voteCounts[vote.option_id]++;
           }
           
-          // Also count by option text for fallback
-          if (vote.option_text && votesByText[vote.option_text] !== undefined) {
-            votesByText[vote.option_text]++;
+          // Count by option text
+          if (vote.option_text && textVoteCounts[vote.option_text] !== undefined) {
+            textVoteCounts[vote.option_text]++;
+          }
+          
+          // If no option_id but we have text, try to map it
+          if (!vote.option_id && vote.option_text) {
+            const matchingOption = pollOptions.find((opt: PollOption) => opt.text === vote.option_text);
+            if (matchingOption?.id && voteCounts[matchingOption.id] !== undefined) {
+              voteCounts[matchingOption.id]++;
+            }
           }
           
           if (playerId && vote.player_id === playerId) {
@@ -115,17 +124,10 @@ export function usePollManager({
             setSelectedOptionId(vote.option_id);
           }
         });
-        
-        // If we don't have ID-based votes but have text-based votes, 
-        // try to map them back to IDs
-        pollOptions.forEach((option: PollOption) => {
-          if (option.id && voteCounts[option.id] === 0 && votesByText[option.text] > 0) {
-            voteCounts[option.id] = votesByText[option.text];
-          }
-        });
       }
 
       setVotes(voteCounts);
+      setVotesByText(textVoteCounts);
     } catch (error) {
       console.error('Error initializing poll:', error);
     } finally {
@@ -136,6 +138,7 @@ export function usePollManager({
   // Reset poll state
   const resetPoll = useCallback(() => {
     setVotes({});
+    setVotesByText({});
     setHasVoted(false);
     setSelectedOptionId(null);
     setPollState('pending');
@@ -172,9 +175,10 @@ export function usePollManager({
   useEffect(() => {
     if (!activationId) return;
 
-    // Subscribe to vote changes
+    // Subscribe to vote changes with a unique channel name
+    const channelName = `poll_votes_${activationId}_${Date.now()}`;
     votesChannelRef.current = supabase
-      .channel(`poll_votes_${activationId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -196,9 +200,16 @@ export function usePollManager({
             }));
           }
           
-          // If the vote was done by text, we need to find the corresponding option
-          // and update by ID
-          if (!newVote.option_id && newVote.option_text) {
+          // Update vote count by text
+          if (newVote.option_text) {
+            setVotesByText(prev => ({
+              ...prev,
+              [newVote.option_text]: (prev[newVote.option_text] || 0) + 1
+            }));
+          }
+          
+          // If no option_id but we have text, try to map it
+          if (!newVote.option_id && newVote.option_text && options) {
             const matchingOption = options.find(opt => opt.text === newVote.option_text);
             if (matchingOption?.id) {
               setVotes(prev => ({
@@ -215,11 +226,14 @@ export function usePollManager({
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Poll votes subscription status:', status);
+      });
 
     // Subscribe to activation state changes
+    const activationChannelName = `activation_state_${activationId}_${Date.now()}`;
     activationChannelRef.current = supabase
-      .channel(`activation_state_${activationId}`)
+      .channel(activationChannelName)
       .on(
         'postgres_changes',
         {
@@ -236,7 +250,9 @@ export function usePollManager({
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Activation state subscription status:', status);
+      });
 
     // Cleanup
     return () => {
@@ -291,6 +307,10 @@ export function usePollManager({
         ...prev,
         [optionId]: (prev[optionId] || 0) + 1
       }));
+      setVotesByText(prev => ({
+        ...prev,
+        [option.text]: (prev[option.text] || 0) + 1
+      }));
 
       return { success: true };
     } catch (error: any) {
@@ -299,36 +319,15 @@ export function usePollManager({
     }
   }, [activationId, playerId, hasVoted, pollState, options]);
 
-  // Calculate votes by text
-  const getVotesByText = useCallback((): { [text: string]: number } => {
-    const votesByText: { [text: string]: number } = {};
-    
-    // First, initialize all options with 0 votes
-    options.forEach(option => {
-      votesByText[option.text] = 0;
-    });
-    
-    // Then add votes from the votes object
-    options.forEach(option => {
-      if (option.id && votes[option.id] !== undefined) {
-        votesByText[option.text] = votes[option.id];
-      }
-    });
-    
-    // If we have the raw vote data from initializePoll, we could also use that
-    // This ensures we capture votes even if they were stored by text
-
-    return votesByText;
-  }, [votes, options]);
-
   // Calculate total votes
   const getTotalVotes = useCallback((): number => {
-    return Object.values(votes).reduce((sum, count) => sum + count, 0);
-  }, [votes]);
+    // Use votesByText as the source of truth since it's more reliable
+    return Object.values(votesByText).reduce((sum, count) => sum + count, 0);
+  }, [votesByText]);
 
   return {
     votes,
-    votesByText: getVotesByText(),
+    votesByText,
     totalVotes: getTotalVotes(),
     hasVoted,
     selectedOptionId,

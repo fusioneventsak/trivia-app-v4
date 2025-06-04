@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircle, XCircle, Send, Trophy, Users, Clock, Lock, PlayCircle } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import CountdownTimer from '../ui/CountdownTimer';
+import MediaDisplay from '../ui/MediaDisplay';
 import PollStateIndicator from '../ui/PollStateIndicator';
 
 interface Option {
@@ -330,51 +331,39 @@ const ActivationPreview: React.FC<{ activation: Activation }> = ({ activation })
   const renderMediaContent = () => {
     if (!activation.media_url || activation.media_type === 'none') return null;
     
-    switch (activation.media_type) {
-      case 'image':
-      case 'gif':
-        return (
-          <div className="flex justify-center items-center mb-4">
-            <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
-              <img 
-                src={activation.media_url} 
-                alt="Question media" 
-                className="max-h-40 object-contain"
+    return (
+      <div className="flex justify-center items-center mb-4">
+        {activation.media_type === 'youtube' ? (
+          <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
+            <div className="aspect-video max-h-40">
+              <MediaDisplay
+                url={activation.media_url}
+                type={activation.media_type}
+                alt="Question media"
+                className="w-full h-full"
+                fallbackText="Video not available"
                 onError={(e) => {
                   console.warn(`Failed to load question media: ${activation.media_url}`);
-                  e.currentTarget.style.display = 'none';
-                  const parent = e.currentTarget.parentElement;
-                  if (parent && !parent.querySelector('.fallback-icon')) {
-                    const fallback = document.createElement('div');
-                    fallback.className = 'fallback-icon w-full h-40 flex items-center justify-center text-gray-400 bg-gray-100 rounded';
-                    fallback.textContent = 'Image not available';
-                    parent.appendChild(fallback);
-                  }
                 }}
               />
             </div>
           </div>
-        );
-      case 'youtube':
-        const videoId = activation.media_url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/)?.[1];
-        return videoId ? (
-          <div className="flex justify-center items-center mb-4">
-            <div className="w-full max-w-md rounded-lg shadow-sm overflow-hidden">
-              <div className="aspect-video max-h-40">
-                <iframe
-                  className="w-full h-full"
-                  src={`https://www.youtube.com/embed/${videoId}`}
-                  allowFullScreen
-                />
-              </div>
-            </div>
-          </div>
         ) : (
-          <div className="w-full p-4 bg-red-100 text-red-700 rounded-lg mb-4">Invalid YouTube URL</div>
-        );
-      default:
-        return null;
-    }
+          <div className="rounded-lg shadow-sm bg-gray-100 p-1 overflow-hidden inline-block">
+            <MediaDisplay
+              url={activation.media_url}
+              type={activation.media_type}
+              alt="Question media"
+              className="max-h-40 object-contain"
+              fallbackText="Image not available"
+              onError={(e) => {
+                console.warn(`Failed to load question media: ${activation.media_url}`);
+              }}
+            />
+          </div>
+        )}
+      </div>
+    );
   };
   
   const renderAnswerResult = () => {

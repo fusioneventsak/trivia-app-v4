@@ -1,6 +1,7 @@
 // src/components/ui/PollDisplay.tsx
 import React from 'react';
 import { cn } from '../../lib/utils';
+import MediaDisplay from './MediaDisplay';
 import { CheckCircle } from 'lucide-react';
 
 interface PollOption {
@@ -167,13 +168,11 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                   <div className="flex items-center flex-1">
                     {isSelected && <CheckCircle className="w-3 h-3 mr-1 text-green-400" />}
                     {option.media_type !== 'none' && option.media_url && (
-                      <img
-                        src={getStorageUrl(option.media_url)}
-                        alt=""
+                      <MediaDisplay
+                        url={option.media_url}
+                        type={option.media_type}
+                        alt={option.text}
                         className="w-6 h-6 rounded-full object-cover mr-1"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
                       />
                     )}
                     <span className="text-white">{option.text}</span>
@@ -275,13 +274,11 @@ const PollDisplay: React.FC<PollDisplayProps> = ({
                 <div className="flex items-center">
                   {isSelected && <CheckCircle className="w-4 h-4 mr-1 text-green-400" />}
                   {option.media_type !== 'none' && option.media_url && (
-                    <img
-                      src={getStorageUrl(option.media_url)}
-                      alt=""
+                    <MediaDisplay
+                      url={option.media_url}
+                      type={option.media_type}
+                      alt={option.text}
                       className="w-8 h-8 rounded-full object-cover mr-2 border border-white/30"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
                     />
                   )}
                   <span className="font-medium text-white">{option.text}</span>
