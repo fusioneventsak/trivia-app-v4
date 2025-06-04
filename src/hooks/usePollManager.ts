@@ -1,4 +1,3 @@
-// src/hooks/usePollManager.ts
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { retry, isNetworkError } from '../lib/error-handling';
@@ -196,7 +195,7 @@ export function usePollManager({
         pollingIntervalRef.current = null;
       }
     };
-  }, [activationId, playerId]);
+  }, [activationId, playerId, initializePoll]);
 
   // Submit vote
   const submitVote = useCallback(async (optionId: string): Promise<{ success: boolean; error?: string }> => {
@@ -268,6 +267,30 @@ export function usePollManager({
       
       // Check if it's a network error
       if (isNetworkError(error)) {
+        // Store the vote in local storage for later retry
+        try {
+          const pendingVotes = JSON.parse(localStorage.getItem('pendingPollVotes') || '[]');
+          pendingVotes.push({
+            activation_id: activationId,
+            player_id: playerId,
+            option_id: optionId,
+            option_text: options.find(opt => opt.id === optionId)?.text || '',
+            created_at: new Date().toISOString()
+          });
+          localStorage.setItem('pendingPollVotes', JSON.stringify(pendingVotes));
+          
+          // Update UI optimistically
+          setHasVoted(true);
+          setSelectedOptionId(optionId);
+          
+          return { 
+            success: true, 
+            error: 'Your vote was saved locally and will be submitted when connection is restored.' 
+          };
+        } catch (storageError) {
+          console.error('Error saving vote to local storage:', storageError);
+        }
+        
         return { 
           success: false, 
           error: 'Network error. Your vote will be saved when connection is restored.' 
@@ -279,7 +302,7 @@ export function usePollManager({
         error: error.message || 'Failed to submit vote. Please try again.' 
       };
     }
-  }, [activationId, playerId, hasVoted, pollState, options]);
+  }, [activationId, playerId, hasVoted, pollState, options, initializePoll]);
 
   // Calculate total votes
   const getTotalVotes = useCallback((): number => {

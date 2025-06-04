@@ -1,3 +1,7 @@
+/**
+ * Error handling utilities for the application
+ */
+
 import { supabase } from './supabase';
 
 /**
