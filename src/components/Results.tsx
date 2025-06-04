@@ -754,22 +754,32 @@ export default function Results() {
                   </div>
                 )}
                 
-                {/* Poll */}
-                {currentActivation.type === 'poll' && (
-                  <div className="space-y-4">
-                    <PollStateIndicator state={pollState} />
-                    
-                    <PollDisplay
-                      options={currentActivation.options || []}
-                      votes={pollVotesByText}
-                      totalVotes={totalVotes}
-                      displayType={currentActivation.poll_display_type || 'bar'}
-                      resultFormat={currentActivation.poll_result_format || 'both'}
-                      getStorageUrl={getStorageUrl}
-                      themeColors={activeTheme}
-                    />
-                  </div>
-                )}
+                // Update the Poll section in src/components/Results.tsx
+// Replace the existing poll section with this:
+
+{/* Poll */}
+{currentActivation.type === 'poll' && (
+  <div className="space-y-4">
+    <PollStateIndicator state={pollState} />
+    
+    {pollState === 'pending' ? (
+      <div className="text-center text-white py-8">
+        <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+        <p className="text-xl">Voting will start soon...</p>
+      </div>
+    ) : (
+      <PollDisplay
+        options={currentActivation.options || []}
+        votes={pollVotesByText}
+        totalVotes={totalVotes}
+        displayType={currentActivation.poll_display_type || 'bar'}
+        resultFormat={currentActivation.poll_result_format || 'both'}
+        getStorageUrl={getStorageUrl}
+        themeColors={activeTheme}
+      />
+    )}
+  </div>
+)}
                 
                 {/* Social Wall */}
                 {currentActivation.type === 'social_wall' && (
