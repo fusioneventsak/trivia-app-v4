@@ -813,4 +813,4 @@ export default function Results() {
               className="mt-2 px-3 py-1 bg-white/10 rounded hover:bg-white/20"
             >
               <RefreshCw className="w-4 h-4 inline mr-2" />
-              Refresh
+              Refresh</button>
