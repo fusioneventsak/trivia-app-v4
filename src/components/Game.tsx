@@ -15,6 +15,9 @@ import PollDisplay from './ui/PollDisplay';
 import confetti from 'canvas-confetti';
 import { getStorageUrl } from '../lib/utils';
 import { usePollManager } from '../hooks/usePollManager';
+import { retry, isNetworkError, getFriendlyErrorMessage } from '../lib/error-handling';
+import NetworkStatus from './ui/NetworkStatus';
+import ErrorBoundary from './ui/ErrorBoundary';
 
 interface Option {
   text: string;
@@ -60,6 +63,7 @@ export default function Game() {
   const [playerScore, setPlayerScore] = useState<number>(0);
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [showAnswers, setShowAnswers] = useState(true);
+  const [showNetworkStatus, setShowNetworkStatus] = useState(false);
 
   // Poll management - Now using the simplified polling version
   const {
@@ -189,11 +193,14 @@ export default function Game() {
   
   const fetchCurrentActivation = async (activationId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('activations')
-        .select('*')
-        .eq('id', activationId)
-        .single();
+      // Use retry function for better error handling
+      const { data, error } = await retry(async () => {
+        return await supabase
+          .from('activations')
+          .select('*')
+          .eq('id', activationId)
+          .single();
+      }, 3, 500);
         
       if (error) throw error;
       
@@ -223,8 +230,15 @@ export default function Game() {
       }
       
     } catch (err: any) {
-      console.error('Error fetching activation:', err);
-      setError(err.message || 'Failed to load activation');
+      console.error('Error fetching activation:', err.message || err);
+      
+      // Check if it's a network error
+      if (isNetworkError(err)) {
+        setShowNetworkStatus(true);
+        setError('Network connection issue. Please check your internet connection.');
+      } else {
+        setError(getFriendlyErrorMessage(err));
+      }
     }
   };
   
@@ -479,11 +493,23 @@ export default function Game() {
   
   return (
     <div 
-      className="min-h-screen p-4"
+      className="min-h-screen p-4 relative"
       style={{ 
         background: `linear-gradient(to bottom right, ${roomTheme.primary_color}, ${roomTheme.secondary_color})` 
       }}
     >
+      {/* Network status indicator */}
+      {showNetworkStatus && (
+        <div className="fixed top-0 left-0 right-0 z-50 p-2">
+          <NetworkStatus 
+            onRetry={() => {
+              setShowNetworkStatus(false);
+              fetchRoomAndActivation();
+            }}
+          />
+        </div>
+      )}
+      
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -518,7 +544,21 @@ export default function Game() {
         
         {/* Current Activation */}
         {currentActivation ? (
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6">
+          <ErrorBoundary
+            fallback={
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6 text-center">
+                <AlertCircle className="w-12 h-12 text-white/50 mx-auto mb-4" />
+                <p className="text-xl text-white mb-4">There was an error loading this content</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30"
+                >
+                  Reload Page
+                </button>
+              </div>
+            }
+          >
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6">
             {currentActivation.type === 'leaderboard' ? (
               <LeaderboardDisplay 
                 roomId={roomId!}
@@ -682,7 +722,8 @@ export default function Game() {
                 )}
               </>
             )}
-          </div>
+            </div>
+          </ErrorBoundary>
         ) : (
           <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-8 text-center">
             <Trophy className="w-16 h-16 text-white/50 mx-auto mb-4" />
