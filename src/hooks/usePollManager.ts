@@ -1,3 +1,4 @@
+// src/hooks/usePollManager.ts
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -8,7 +9,15 @@ interface PollOption {
   media_url?: string;
 }
 
-interface PollVotes {
+interface PollVote {
+  activation_id: string;
+  player_id: string;
+  option_id: string;
+  option_text: string;
+  created_at?: string;
+}
+
+interface PollVoteCount {
   [optionId: string]: number;
 }
 
@@ -18,95 +27,134 @@ interface UsePollManagerProps {
   playerId?: string | null;
 }
 
-export function usePollManager({ activationId, options = [], playerId }: UsePollManagerProps) {
-  const [votes, setVotes] = useState<PollVotes>({});
+interface UsePollManagerReturn {
+  votes: PollVoteCount;
+  votesByText: { [text: string]: number };
+  totalVotes: number;
+  hasVoted: boolean;
+  selectedOptionId: string | null;
+  pollState: 'pending' | 'voting' | 'closed';
+  isLoading: boolean;
+  submitVote: (optionId: string) => Promise<{ success: boolean; error?: string }>;
+  resetPoll: () => void;
+}
+
+export function usePollManager({ 
+  activationId, 
+  options = [], 
+  playerId 
+}: UsePollManagerProps): UsePollManagerReturn {
+  const [votes, setVotes] = useState<PollVoteCount>({});
   const [hasVoted, setHasVoted] = useState(false);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
   const [isLoading, setIsLoading] = useState(false);
-  const subscriptionRef = useRef<any>(null);
-  const currentActivationRef = useRef<string | null>(null);
+  
+  // Track subscriptions
+  const votesChannelRef = useRef<any>(null);
+  const activationChannelRef = useRef<any>(null);
+  const currentActivationIdRef = useRef<string | null>(null);
 
-  // Reset everything when activation changes
+  // Initialize poll data
+  const initializePoll = useCallback(async () => {
+    if (!activationId) return;
+    
+    setIsLoading(true);
+    
+    try {
+      // Get poll state from activation
+      const { data: activation, error: activationError } = await supabase
+        .from('activations')
+        .select('poll_state')
+        .eq('id', activationId)
+        .single();
+      
+      if (activationError) {
+        console.error('Error fetching activation:', activationError);
+      } else if (activation) {
+        setPollState(activation.poll_state || 'pending');
+      }
+
+      // Initialize vote counts
+      const voteCounts: PollVoteCount = {};
+      options.forEach(option => {
+        if (option.id) {
+          voteCounts[option.id] = 0;
+        }
+      });
+
+      // Get all votes for this poll
+      const { data: voteData, error: voteError } = await supabase
+        .from('poll_votes')
+        .select('*')
+        .eq('activation_id', activationId);
+
+      if (voteError) {
+        console.error('Error fetching votes:', voteError);
+      } else if (voteData) {
+        // Count votes and check if current player has voted
+        voteData.forEach((vote: PollVote) => {
+          if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
+            voteCounts[vote.option_id]++;
+          }
+          
+          if (playerId && vote.player_id === playerId) {
+            setHasVoted(true);
+            setSelectedOptionId(vote.option_id);
+          }
+        });
+      }
+
+      setVotes(voteCounts);
+    } catch (error) {
+      console.error('Error initializing poll:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activationId, options, playerId]);
+
+  // Reset poll state
+  const resetPoll = useCallback(() => {
+    setVotes({});
+    setHasVoted(false);
+    setSelectedOptionId(null);
+    setPollState('pending');
+    
+    // Unsubscribe from channels
+    if (votesChannelRef.current) {
+      votesChannelRef.current.unsubscribe();
+      votesChannelRef.current = null;
+    }
+    if (activationChannelRef.current) {
+      activationChannelRef.current.unsubscribe();
+      activationChannelRef.current = null;
+    }
+  }, []);
+
+  // Effect to handle activation changes
   useEffect(() => {
-    if (activationId !== currentActivationRef.current) {
-      console.log('Poll activation changed, resetting state');
-      currentActivationRef.current = activationId;
+    // Check if activation has changed
+    if (activationId !== currentActivationIdRef.current) {
+      console.log('Poll activation changed:', activationId);
+      currentActivationIdRef.current = activationId;
       
-      // Clean reset of all state
-      setVotes({});
-      setHasVoted(false);
-      setSelectedOptionId(null);
-      setPollState('pending');
+      // Reset state for new activation
+      resetPoll();
       
-      // Clean up old subscription
-      if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
+      // Initialize new poll if we have an activation
+      if (activationId) {
+        initializePoll();
       }
     }
-  }, [activationId]);
+  }, [activationId, initializePoll, resetPoll]);
 
-  // Initialize and subscribe to poll data
+  // Set up real-time subscriptions
   useEffect(() => {
     if (!activationId) return;
 
-    const initializePoll = async () => {
-      setIsLoading(true);
-      
-      try {
-        // Get poll state from activation
-        const { data: activation } = await supabase
-          .from('activations')
-          .select('poll_state')
-          .eq('id', activationId)
-          .single();
-        
-        if (activation) {
-          setPollState(activation.poll_state || 'pending');
-        }
-
-        // Get all votes for this poll
-        const { data: voteData } = await supabase
-          .from('poll_votes')
-          .select('option_id, player_id')
-          .eq('activation_id', activationId);
-
-        if (voteData) {
-          // Count votes by option
-          const voteCounts: PollVotes = {};
-          options.forEach(option => {
-            if (option.id) {
-              voteCounts[option.id] = 0;
-            }
-          });
-
-          voteData.forEach(vote => {
-            if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
-              voteCounts[vote.option_id]++;
-            }
-            
-            // Check if current player has voted
-            if (playerId && vote.player_id === playerId) {
-              setHasVoted(true);
-              setSelectedOptionId(vote.option_id);
-            }
-          });
-
-          setVotes(voteCounts);
-        }
-      } catch (error) {
-        console.error('Error initializing poll:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    initializePoll();
-
-    // Subscribe to changes
-    const channel = supabase
-      .channel(`poll_${activationId}`)
+    // Subscribe to vote changes
+    votesChannelRef.current = supabase
+      .channel(`poll_votes_${activationId}`)
       .on(
         'postgres_changes',
         {
@@ -118,22 +166,28 @@ export function usePollManager({ activationId, options = [], playerId }: UsePoll
         (payload) => {
           console.log('New vote received:', payload.new);
           
+          const newVote = payload.new as PollVote;
+          
           // Update vote count
-          const optionId = payload.new.option_id;
-          if (optionId) {
+          if (newVote.option_id) {
             setVotes(prev => ({
               ...prev,
-              [optionId]: (prev[optionId] || 0) + 1
+              [newVote.option_id]: (prev[newVote.option_id] || 0) + 1
             }));
           }
 
           // Check if it's the current player's vote
-          if (playerId && payload.new.player_id === playerId) {
+          if (playerId && newVote.player_id === playerId) {
             setHasVoted(true);
-            setSelectedOptionId(optionId);
+            setSelectedOptionId(newVote.option_id);
           }
         }
       )
+      .subscribe();
+
+    // Subscribe to activation state changes
+    activationChannelRef.current = supabase
+      .channel(`activation_state_${activationId}`)
       .on(
         'postgres_changes',
         {
@@ -143,7 +197,8 @@ export function usePollManager({ activationId, options = [], playerId }: UsePoll
           filter: `id=eq.${activationId}`
         },
         (payload) => {
-          console.log('Poll state updated:', payload.new.poll_state);
+          console.log('Activation state updated:', payload.new);
+          
           if (payload.new.poll_state) {
             setPollState(payload.new.poll_state);
           }
@@ -151,30 +206,48 @@ export function usePollManager({ activationId, options = [], playerId }: UsePoll
       )
       .subscribe();
 
-    subscriptionRef.current = channel;
-
+    // Cleanup
     return () => {
-      if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
+      if (votesChannelRef.current) {
+        votesChannelRef.current.unsubscribe();
+        votesChannelRef.current = null;
+      }
+      if (activationChannelRef.current) {
+        activationChannelRef.current.unsubscribe();
+        activationChannelRef.current = null;
       }
     };
-  }, [activationId, options, playerId]);
+  }, [activationId, playerId]);
 
   // Submit vote
-  const submitVote = useCallback(async (optionId: string) => {
-    if (!activationId || !playerId || hasVoted || pollState !== 'voting') {
-      return { success: false, error: 'Cannot submit vote' };
+  const submitVote = useCallback(async (optionId: string): Promise<{ success: boolean; error?: string }> => {
+    if (!activationId || !playerId) {
+      return { success: false, error: 'Missing activation or player ID' };
+    }
+
+    if (hasVoted) {
+      return { success: false, error: 'You have already voted' };
+    }
+
+    if (pollState !== 'voting') {
+      return { success: false, error: 'Voting is not open' };
     }
 
     try {
+      // Find the option
+      const option = options.find(opt => opt.id === optionId);
+      if (!option) {
+        return { success: false, error: 'Invalid option' };
+      }
+
+      // Submit the vote
       const { error } = await supabase
         .from('poll_votes')
         .insert({
           activation_id: activationId,
           player_id: playerId,
           option_id: optionId,
-          option_text: options.find(opt => opt.id === optionId)?.text || ''
+          option_text: option.text
         });
 
       if (error) throw error;
@@ -190,12 +263,12 @@ export function usePollManager({ activationId, options = [], playerId }: UsePoll
       return { success: true };
     } catch (error: any) {
       console.error('Error submitting vote:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || 'Failed to submit vote' };
     }
   }, [activationId, playerId, hasVoted, pollState, options]);
 
-  // Get votes by text for display
-  const getVotesByText = useCallback(() => {
+  // Calculate votes by text
+  const getVotesByText = useCallback((): { [text: string]: number } => {
     const votesByText: { [text: string]: number } = {};
     
     options.forEach(option => {
@@ -209,7 +282,8 @@ export function usePollManager({ activationId, options = [], playerId }: UsePoll
     return votesByText;
   }, [votes, options]);
 
-  const getTotalVotes = useCallback(() => {
+  // Calculate total votes
+  const getTotalVotes = useCallback((): number => {
     return Object.values(votes).reduce((sum, count) => sum + count, 0);
   }, [votes]);
 
@@ -221,6 +295,7 @@ export function usePollManager({ activationId, options = [], playerId }: UsePoll
     selectedOptionId,
     pollState,
     isLoading,
-    submitVote
+    submitVote,
+    resetPoll
   };
 }
