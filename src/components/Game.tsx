@@ -1,3 +1,4 @@
+// src/components/Game.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -33,6 +34,7 @@ interface Activation {
   media_url?: string;
   poll_display_type?: 'bar' | 'pie' | 'horizontal' | 'vertical';
   poll_state?: 'pending' | 'voting' | 'closed';
+  poll_result_format?: 'percentage' | 'votes' | 'both';
   time_limit?: number;
   show_answers?: boolean;
   timer_started_at?: string;
@@ -59,7 +61,7 @@ export default function Game() {
   const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
   const [showAnswers, setShowAnswers] = useState(true);
 
-  // Poll management
+  // Poll management - Now using the simplified polling version
   const {
     votesByText: pollVotes,
     totalVotes,
@@ -646,7 +648,8 @@ export default function Game() {
                           <button
                             key={index}
                             onClick={() => handlePollVote(option.text, option.id)}
-                            className="p-4 rounded-lg bg-white/20 hover:bg-white/30 transition transform hover:scale-105"
+                            disabled={pollVoted || pollLoading}
+                            className="p-4 rounded-lg bg-white/20 hover:bg-white/30 transition transform hover:scale-105 disabled:opacity-50"
                           >
                             <div className="flex items-center gap-3">
                               {option.media_type !== 'none' && option.media_url && (
