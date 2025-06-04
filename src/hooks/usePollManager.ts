@@ -1,4 +1,3 @@
-// src/hooks/usePollManager.ts
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -10,6 +9,7 @@ interface PollOption {
 }
 
 interface PollVote {
+  id: string;
   activation_id: string;
   player_id: string;
   option_id: string;
@@ -74,60 +74,56 @@ export function usePollManager({
         console.error('Error fetching activation:', activationError);
       } else if (activation) {
         setPollState(activation.poll_state || 'pending');
-      }
-
-      // Use activation options if available, otherwise use passed options
-      const pollOptions = activation?.options || options;
-      
-      // Initialize vote counts - handle both ID and text-based counting
-      const voteCounts: PollVoteCount = {};
-      const textVoteCounts: { [text: string]: number } = {};
-      
-      pollOptions.forEach((option: PollOption) => {
-        if (option.id) {
-          voteCounts[option.id] = 0;
-        }
-        textVoteCounts[option.text] = 0;
-      });
-
-      // Get all votes for this poll
-      const { data: voteData, error: voteError } = await supabase
-        .from('poll_votes')
-        .select('*')
-        .eq('activation_id', activationId);
-
-      if (voteError) {
-        console.error('Error fetching votes:', voteError);
-      } else if (voteData) {
-        // Count votes
-        voteData.forEach((vote: PollVote) => {
-          // Count by option ID if available
-          if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
-            voteCounts[vote.option_id]++;
+        
+        // Ensure options have IDs
+        const pollOptions = (activation.options || options).map((opt: PollOption, index: number) => ({
+          ...opt,
+          id: opt.id || `option-${index}`
+        }));
+        
+        // Initialize vote counts
+        const voteCounts: PollVoteCount = {};
+        const textVoteCounts: { [text: string]: number } = {};
+        
+        pollOptions.forEach((option: PollOption) => {
+          if (option.id) {
+            voteCounts[option.id] = 0;
           }
-          
-          // Count by option text
-          if (vote.option_text && textVoteCounts[vote.option_text] !== undefined) {
-            textVoteCounts[vote.option_text]++;
-          }
-          
-          // If no option_id but we have text, try to map it
-          if (!vote.option_id && vote.option_text) {
-            const matchingOption = pollOptions.find((opt: PollOption) => opt.text === vote.option_text);
-            if (matchingOption?.id && voteCounts[matchingOption.id] !== undefined) {
-              voteCounts[matchingOption.id]++;
-            }
-          }
-          
-          if (playerId && vote.player_id === playerId) {
-            setHasVoted(true);
-            setSelectedOptionId(vote.option_id);
-          }
+          textVoteCounts[option.text] = 0;
         });
-      }
 
-      setVotes(voteCounts);
-      setVotesByText(textVoteCounts);
+        // Get all votes for this poll
+        const { data: voteData, error: voteError } = await supabase
+          .from('poll_votes')
+          .select('*')
+          .eq('activation_id', activationId);
+
+        if (voteError) {
+          console.error('Error fetching votes:', voteError);
+        } else if (voteData) {
+          // Count votes
+          voteData.forEach((vote: PollVote) => {
+            // Count by option ID if available
+            if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
+              voteCounts[vote.option_id]++;
+            }
+            
+            // Always count by option text
+            if (vote.option_text && textVoteCounts[vote.option_text] !== undefined) {
+              textVoteCounts[vote.option_text]++;
+            }
+            
+            // Check if current player has voted
+            if (playerId && vote.player_id === playerId) {
+              setHasVoted(true);
+              setSelectedOptionId(vote.option_id);
+            }
+          });
+        }
+
+        setVotes(voteCounts);
+        setVotesByText(textVoteCounts);
+      }
     } catch (error) {
       console.error('Error initializing poll:', error);
     } finally {
@@ -175,10 +171,11 @@ export function usePollManager({
   useEffect(() => {
     if (!activationId) return;
 
-    // Subscribe to vote changes with a unique channel name
-    const channelName = `poll_votes_${activationId}_${Date.now()}`;
-    votesChannelRef.current = supabase
-      .channel(channelName)
+    console.log('Setting up poll subscriptions for activation:', activationId);
+
+    // Subscribe to vote changes
+    const votesChannel = supabase
+      .channel(`poll_votes_${activationId}`)
       .on(
         'postgres_changes',
         {
@@ -200,23 +197,12 @@ export function usePollManager({
             }));
           }
           
-          // Update vote count by text
+          // Always update vote count by text
           if (newVote.option_text) {
             setVotesByText(prev => ({
               ...prev,
               [newVote.option_text]: (prev[newVote.option_text] || 0) + 1
             }));
-          }
-          
-          // If no option_id but we have text, try to map it
-          if (!newVote.option_id && newVote.option_text && options) {
-            const matchingOption = options.find(opt => opt.text === newVote.option_text);
-            if (matchingOption?.id) {
-              setVotes(prev => ({
-                ...prev,
-                [matchingOption.id]: (prev[matchingOption.id] || 0) + 1
-              }));
-            }
           }
 
           // Check if it's the current player's vote
@@ -230,10 +216,11 @@ export function usePollManager({
         console.log('Poll votes subscription status:', status);
       });
 
+    votesChannelRef.current = votesChannel;
+
     // Subscribe to activation state changes
-    const activationChannelName = `activation_state_${activationId}_${Date.now()}`;
-    activationChannelRef.current = supabase
-      .channel(activationChannelName)
+    const activationChannel = supabase
+      .channel(`activation_state_${activationId}`)
       .on(
         'postgres_changes',
         {
@@ -254,8 +241,11 @@ export function usePollManager({
         console.log('Activation state subscription status:', status);
       });
 
+    activationChannelRef.current = activationChannel;
+
     // Cleanup
     return () => {
+      console.log('Cleaning up poll subscriptions');
       if (votesChannelRef.current) {
         votesChannelRef.current.unsubscribe();
         votesChannelRef.current = null;
@@ -265,7 +255,7 @@ export function usePollManager({
         activationChannelRef.current = null;
       }
     };
-  }, [activationId, playerId, options]);
+  }, [activationId, playerId]);
 
   // Submit vote
   const submitVote = useCallback(async (optionId: string): Promise<{ success: boolean; error?: string }> => {
@@ -288,6 +278,8 @@ export function usePollManager({
         return { success: false, error: 'Invalid option' };
       }
 
+      console.log('Submitting vote:', { activationId, playerId, optionId, optionText: option.text });
+
       // Submit the vote
       const { error } = await supabase
         .from('poll_votes')
@@ -300,18 +292,22 @@ export function usePollManager({
 
       if (error) throw error;
 
-      // Update local state immediately
+      // Update local state immediately for optimistic UI
       setHasVoted(true);
       setSelectedOptionId(optionId);
+      
+      // Update vote counts immediately
       setVotes(prev => ({
         ...prev,
         [optionId]: (prev[optionId] || 0) + 1
       }));
+      
       setVotesByText(prev => ({
         ...prev,
         [option.text]: (prev[option.text] || 0) + 1
       }));
 
+      console.log('Vote submitted successfully');
       return { success: true };
     } catch (error: any) {
       console.error('Error submitting vote:', error);
@@ -321,7 +317,7 @@ export function usePollManager({
 
   // Calculate total votes
   const getTotalVotes = useCallback((): number => {
-    // Use votesByText as the source of truth since it's more reliable
+    // Use votesByText as the source of truth
     return Object.values(votesByText).reduce((sum, count) => sum + count, 0);
   }, [votesByText]);
 
