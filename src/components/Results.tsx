@@ -98,16 +98,17 @@ export default function Results() {
   const currentActivationIdRef = useRef<string | null>(null);
   const gameSessionChannelRef = useRef<any>(null);
 
-  // Poll management
-  const {
-    votesByText: pollVotesByText,
-    totalVotes,
-    pollState,
-    isLoading: pollLoading
-  } = usePollManager({
-    activationId: currentActivation?.id || null,
-    options: currentActivation?.options
-  });
+ // Poll management
+const {
+  votesByText: pollVotesByText,
+  totalVotes,
+  pollState,
+  isLoading: pollLoading
+} = usePollManager({
+  activationId: currentActivation?.id || null,
+  options: currentActivation?.options,
+  playerId: null // Results page doesn't have a player
+});
 
   // Toggle debug mode with key sequence
   useEffect(() => {
