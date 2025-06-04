@@ -65,7 +65,7 @@ export function usePollManager({
       // Get poll state from activation
       const { data: activation, error: activationError } = await supabase
         .from('activations')
-        .select('poll_state')
+        .select('poll_state, options')
         .eq('id', activationId)
         .single();
       
@@ -75,12 +75,18 @@ export function usePollManager({
         setPollState(activation.poll_state || 'pending');
       }
 
-      // Initialize vote counts
+      // Use activation options if available, otherwise use passed options
+      const pollOptions = activation?.options || options;
+      
+      // Initialize vote counts - handle both ID and text-based counting
       const voteCounts: PollVoteCount = {};
-      options.forEach(option => {
+      const votesByText: { [text: string]: number } = {};
+      
+      pollOptions.forEach((option: PollOption) => {
         if (option.id) {
           voteCounts[option.id] = 0;
         }
+        votesByText[option.text] = 0;
       });
 
       // Get all votes for this poll
@@ -92,15 +98,29 @@ export function usePollManager({
       if (voteError) {
         console.error('Error fetching votes:', voteError);
       } else if (voteData) {
-        // Count votes and check if current player has voted
+        // Count votes by both ID and text
         voteData.forEach((vote: PollVote) => {
+          // Count by option ID if available
           if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
             voteCounts[vote.option_id]++;
+          }
+          
+          // Also count by option text for fallback
+          if (vote.option_text && votesByText[vote.option_text] !== undefined) {
+            votesByText[vote.option_text]++;
           }
           
           if (playerId && vote.player_id === playerId) {
             setHasVoted(true);
             setSelectedOptionId(vote.option_id);
+          }
+        });
+        
+        // If we don't have ID-based votes but have text-based votes, 
+        // try to map them back to IDs
+        pollOptions.forEach((option: PollOption) => {
+          if (option.id && voteCounts[option.id] === 0 && votesByText[option.text] > 0) {
+            voteCounts[option.id] = votesByText[option.text];
           }
         });
       }
@@ -168,12 +188,24 @@ export function usePollManager({
           
           const newVote = payload.new as PollVote;
           
-          // Update vote count
+          // Update vote count by ID
           if (newVote.option_id) {
             setVotes(prev => ({
               ...prev,
               [newVote.option_id]: (prev[newVote.option_id] || 0) + 1
             }));
+          }
+          
+          // If the vote was done by text, we need to find the corresponding option
+          // and update by ID
+          if (!newVote.option_id && newVote.option_text) {
+            const matchingOption = options.find(opt => opt.text === newVote.option_text);
+            if (matchingOption?.id) {
+              setVotes(prev => ({
+                ...prev,
+                [matchingOption.id]: (prev[matchingOption.id] || 0) + 1
+              }));
+            }
           }
 
           // Check if it's the current player's vote
@@ -217,7 +249,7 @@ export function usePollManager({
         activationChannelRef.current = null;
       }
     };
-  }, [activationId, playerId]);
+  }, [activationId, playerId, options]);
 
   // Submit vote
   const submitVote = useCallback(async (optionId: string): Promise<{ success: boolean; error?: string }> => {
@@ -271,13 +303,20 @@ export function usePollManager({
   const getVotesByText = useCallback((): { [text: string]: number } => {
     const votesByText: { [text: string]: number } = {};
     
+    // First, initialize all options with 0 votes
+    options.forEach(option => {
+      votesByText[option.text] = 0;
+    });
+    
+    // Then add votes from the votes object
     options.forEach(option => {
       if (option.id && votes[option.id] !== undefined) {
         votesByText[option.text] = votes[option.id];
-      } else {
-        votesByText[option.text] = 0;
       }
     });
+    
+    // If we have the raw vote data from initializePoll, we could also use that
+    // This ensures we capture votes even if they were stored by text
 
     return votesByText;
   }, [votes, options]);
