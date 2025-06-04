@@ -1,3 +1,4 @@
+// src/components/Results.tsx (complete file - copy and paste this entire file)
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -93,22 +94,20 @@ export default function Results() {
   const [previousRankings, setPreviousRankings] = useState<{[key: string]: number}>({});
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
-  const [activationRefreshCount, setActivationRefreshCount] = useState(0);
-  const activationChannelRef = useRef<any>(null);
   const currentActivationIdRef = useRef<string | null>(null);
   const gameSessionChannelRef = useRef<any>(null);
 
- // Poll management
-const {
-  votesByText: pollVotesByText,
-  totalVotes,
-  pollState,
-  isLoading: pollLoading
-} = usePollManager({
-  activationId: currentActivation?.id || null,
-  options: currentActivation?.options,
-  playerId: null // Results page doesn't have a player
-});
+  // Poll management - Now using the simplified polling version
+  const {
+    votesByText: pollVotesByText,
+    totalVotes,
+    pollState,
+    isLoading: pollLoading
+  } = usePollManager({
+    activationId: currentActivation?.id || null,
+    options: currentActivation?.options,
+    playerId: null // Results page doesn't have a player
+  });
 
   // Toggle debug mode with key sequence
   useEffect(() => {
@@ -231,16 +230,12 @@ const {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
       }
-      if (activationChannelRef.current) {
-        activationChannelRef.current.unsubscribe();
-        activationChannelRef.current = null;
-      }
       if (gameSessionChannelRef.current) {
         gameSessionChannelRef.current.unsubscribe();
         gameSessionChannelRef.current = null;
       }
     };
-  }, [code, debugMode, activationRefreshCount]);
+  }, [code, debugMode]);
   
   // Handle activation change
   const handleActivationChange = async (activation: Activation | null) => {
@@ -385,37 +380,6 @@ const {
       })
       .subscribe();
 
-    // Subscribe to activation updates (for poll state changes)
-    activationChannelRef.current = supabase
-      .channel(`activation_updates_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'activations',
-          filter: `room_id=eq.${roomId}`
-        },
-        async (payload) => {
-          if (currentActivationIdRef.current && payload.new.id === currentActivationIdRef.current) {
-            console.log('Current activation updated:', payload.new.id);
-            
-            // Update activation without resetting everything
-            setCurrentActivation(prev => ({
-              ...prev,
-              ...payload.new
-            }));
-            
-            // Update timer_started_at if it changed
-            if (payload.new.timer_started_at !== payload.old?.timer_started_at && 
-                payload.new.time_limit && payload.new.timer_started_at) {
-              setupTimer(payload.new as Activation);
-            }
-          }
-        }
-      )
-      .subscribe();
-
     // Subscribe to player changes
     const playerChannel = supabase
       .channel(`players_${roomId}`)
@@ -456,9 +420,6 @@ const {
     return () => {
       if (gameSessionChannelRef.current) {
         gameSessionChannelRef.current.unsubscribe();
-      }
-      if (activationChannelRef.current) {
-        activationChannelRef.current.unsubscribe();
       }
       playerChannel.unsubscribe();
     };
@@ -818,11 +779,11 @@ const {
             <div>Poll Votes (by text): {JSON.stringify(pollVotesByText)}</div>
             <div>Network Status: {networkError ? 'Offline' : 'Online'}</div>
             <button
-              onClick={() => setActivationRefreshCount(prev => prev + 1)}
+              onClick={() => window.location.reload()}
               className="mt-2 px-3 py-1 bg-white/10 rounded hover:bg-white/20"
             >
               <RefreshCw className="w-4 h-4 inline mr-2" />
-              Refresh Activation
+              Refresh Page
             </button>
           </div>
         )}
