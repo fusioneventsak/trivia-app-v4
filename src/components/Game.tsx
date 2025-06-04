@@ -311,36 +311,55 @@ export default function Game() {
     setShowResult(true);
   };
   
-  const handlePollVote = async (answer: string, optionId?: string) => {
-    if (!currentActivation || !currentPlayerId) return;
-    
-    // Ensure we have an option ID to submit
-    if (!optionId) {
-      // Try to find the option ID from the text
-      const option = currentActivation.options?.find(opt => opt.text === answer);
-      if (!option?.id) {
-        setError('Invalid option selected');
-        return;
-      }
-      optionId = option.id;
+ // Update the handlePollVote function in src/components/Game.tsx
+// Replace the existing handlePollVote with this:
+
+const handlePollVote = async (answer: string, optionId?: string) => {
+  if (!currentActivation || !currentPlayerId) {
+    setError('Unable to submit vote. Missing activation or player ID.');
+    return;
+  }
+  
+  // Ensure we have an option ID
+  if (!optionId) {
+    // Try to find the option ID from the text
+    const option = currentActivation.options?.find(opt => opt.text === answer);
+    if (!option?.id) {
+      setError('Invalid option selected');
+      return;
     }
+    optionId = option.id;
+  }
+  
+  // Store the selected answer text for display
+  setSelectedAnswer(answer);
+  setSelectedOptionId(optionId);
+  
+  // Submit the vote using the poll manager
+  const result = await submitPollVote(optionId);
+  
+  if (result.success) {
+    // Award participation points for voting
+    const participationPoints = 25;
+    setPointsEarned(participationPoints);
+    setShowPointAnimation(true);
     
-    setSelectedAnswer(answer);
-    setSelectedOptionId(optionId);
+    // Update player score in database
+    await updatePlayerScoreInDB(participationPoints, false, 0);
     
-    const result = await submitPollVote(optionId);
+    // Fire small confetti for voting
+    confetti({
+      particleCount: 50,
+      spread: 45,
+      origin: { y: 0.7 }
+    });
+  } else {
+    setError(result.error || 'Failed to submit vote. Please try again.');
     
-    if (result.success) {
-      // Award participation points for voting
-      const participationPoints = 25;
-      setPointsEarned(participationPoints);
-      setShowPointAnimation(true);
-      
-      await updatePlayerScoreInDB(participationPoints, false, 0);
-    } else {
-      setError(result.error || 'Failed to submit vote');
-    }
-  };
+    // Clear error after 3 seconds
+    setTimeout(() => setError(null), 3000);
+  }
+};
   
   const updatePlayerScoreInDB = async (points: number, isCorrect: boolean, responseTimeMs: number) => {
     if (!currentPlayerId) return;
