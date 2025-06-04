@@ -15,6 +15,9 @@ import QRCodeDisplay from './ui/QRCodeDisplay';
 import { getStorageUrl } from '../lib/utils';
 import { usePollManager } from '../hooks/usePollManager';
 import MediaDisplay from './ui/MediaDisplay';
+import { retry, isNetworkError, getFriendlyErrorMessage } from '../lib/error-handling';
+import NetworkStatus from './ui/NetworkStatus';
+import ErrorBoundary from './ui/ErrorBoundary';
 import StorageDebug from './debug/StorageDebug';
 
 // Helper function to extract YouTube video ID from various URL formats
@@ -94,8 +97,10 @@ export default function Results() {
   const [previousRankings, setPreviousRankings] = useState<{[key: string]: number}>({});
   const [previousActivationType, setPreviousActivationType] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
+  const activationChannelRef = useRef<any>(null);
   const currentActivationIdRef = useRef<string | null>(null);
   const gameSessionChannelRef = useRef<any>(null);
+  const [showNetworkStatus, setShowNetworkStatus] = useState(false);
 
   // Poll management - Now using the simplified polling version
   const {
@@ -189,18 +194,21 @@ export default function Results() {
         // Get current activation
         const { data: sessionData, error: sessionError } = await supabase
           .from('game_sessions')
-          .select('current_activation')
+          .select('current_activation, is_live')
           .eq('room_id', roomData.id)
           .maybeSingle();
           
         if (sessionError) throw sessionError;
         
         if (sessionData?.current_activation) {
-          const { data: activation, error: activationError } = await supabase
-            .from('activations')
-            .select('*')
-            .eq('id', sessionData.current_activation)
-            .single();
+          // Use retry function for better error handling
+          const { data: activation, error: activationError } = await retry(async () => {
+            return await supabase
+              .from('activations')
+              .select('*')
+              .eq('id', sessionData.current_activation)
+              .single();
+          }, 3, 500);
               
           if (activationError) throw activationError;
           
@@ -216,7 +224,15 @@ export default function Results() {
         
       } catch (err: any) {
         console.error('Error fetching room:', err);
-        setError(err.message || 'Failed to load room data');
+        
+        // Check if it's a network error
+        if (isNetworkError(err)) {
+          setShowNetworkStatus(true);
+          setError('Network connection issue. Please check your internet connection.');
+        } else {
+          setError(getFriendlyErrorMessage(err));
+        }
+        
         setLoading(false);
       }
     };
@@ -572,11 +588,23 @@ export default function Results() {
 
   return (
     <div 
-      className="min-h-screen p-4 bg-theme-gradient"
+      className="min-h-screen p-4 bg-theme-gradient relative"
       style={{ 
         background: `linear-gradient(to bottom right, ${activeTheme.primary_color}, ${activeTheme.secondary_color})` 
       }}
     >
+      {/* Network status indicator */}
+      {showNetworkStatus && (
+        <div className="fixed top-0 left-0 right-0 z-50 p-2">
+          <NetworkStatus 
+            onRetry={() => {
+              setShowNetworkStatus(false);
+              window.location.reload();
+            }}
+          />
+        </div>
+      )}
+      
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -600,7 +628,8 @@ export default function Results() {
         
         {/* Current Activation */}
         {currentActivation ? (
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6">
+          <ErrorBoundary>
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6">
             {/* Timer Display */}
             {currentActivation.time_limit && currentActivation.timer_started_at && (
               <div className="mb-4 flex justify-center">
@@ -718,7 +747,8 @@ export default function Results() {
                 )}
               </>
             )}
-          </div>
+            </div>
+          </ErrorBoundary>
         ) : (
           <div className="bg-white/10 backdrop-blur-sm rounded-lg shadow-sm p-6 mb-6 text-center">
             <h2 className="text-xl font-semibold text-white mb-4">Waiting for next question...</h2>
@@ -769,7 +799,7 @@ export default function Results() {
         
         {/* Debug Info */}
         {debugMode && (
-          <div className="bg-black/20 backdrop-blur-sm rounded-lg p-4 mb-6 text-white text-sm font-mono">
+          <div className="bg-black/20 backdrop-blur-sm rounded-lg p-4 mb-6 text-white text-sm font-mono overflow-auto max-h-60">
             <div>Room ID: {room.id}</div>
             <div>Activation ID: {currentActivation?.id}</div>
             <div>Activation Type: {currentActivation?.type}</div>
@@ -783,11 +813,4 @@ export default function Results() {
               className="mt-2 px-3 py-1 bg-white/10 rounded hover:bg-white/20"
             >
               <RefreshCw className="w-4 h-4 inline mr-2" />
-              Refresh Page
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+              Refresh

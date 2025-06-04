@@ -1,6 +1,7 @@
 // src/hooks/usePollManager.ts
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { retry, isNetworkError } from '../lib/error-handling';
 
 interface PollOption {
   id?: string;
@@ -51,25 +52,39 @@ export function usePollManager({
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [pollState, setPollState] = useState<'pending' | 'voting' | 'closed'>('pending');
   const [isLoading, setIsLoading] = useState(false);
+  
+  const currentActivationIdRef = useRef<string | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+  const errorCountRef = useRef<number>(0);
 
-  // Function to fetch all poll data
-  const fetchPollData = useCallback(async () => {
+  // Initialize poll data
+  const initializePoll = useCallback(async () => {
     if (!activationId) return;
     
+    // Don't fetch too frequently (throttle to once per second)
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < 1000) {
+      return;
+    }
+    lastFetchTimeRef.current = now;
+    
+    setIsLoading(true);
     try {
-      // Get poll state from activation
-      const { data: activation, error: activationError } = await supabase
-        .from('activations')
-        .select('poll_state, options')
-        .eq('id', activationId)
-        .single();
+      // Use retry for better error handling
+      const { data: activation, error: activationError } = await retry(async () => {
+        return await supabase
+          .from('activations')
+          .select('poll_state, options')
+          .eq('id', activationId)
+          .single();
+      }, 2);
       
       if (activationError) {
         console.error('Error fetching activation:', activationError);
+        errorCountRef.current++;
         return;
-      }
-      
-      if (activation) {
+      } else if (activation) {
         setPollState(activation.poll_state || 'pending');
         
         // Initialize vote counts
@@ -88,22 +103,19 @@ export function usePollManager({
         });
 
         // Get all votes for this poll
-        const { data: voteData, error: voteError } = await supabase
-          .from('poll_votes')
-          .select('*')
-          .eq('activation_id', activationId);
+        const { data: voteData, error: voteError } = await retry(async () => {
+          return await supabase
+            .from('poll_votes')
+            .select('*')
+            .eq('activation_id', activationId);
+        }, 2);
 
         if (voteError) {
           console.error('Error fetching votes:', voteError);
+          errorCountRef.current++;
           return;
-        }
-        
-        // Reset player vote status
-        let playerHasVoted = false;
-        let playerSelectedOption: string | null = null;
-        
-        // Count votes
-        if (voteData) {
+        } else if (voteData) {
+          // Count votes
           voteData.forEach((vote: PollVote) => {
             // Count by option ID if available
             if (vote.option_id && voteCounts[vote.option_id] !== undefined) {
@@ -117,49 +129,74 @@ export function usePollManager({
             
             // Check if current player has voted
             if (playerId && vote.player_id === playerId) {
-              playerHasVoted = true;
-              playerSelectedOption = vote.option_id;
+              setHasVoted(true);
+              setSelectedOptionId(vote.option_id);
             }
           });
         }
 
-        // Update all states at once
         setVotes(voteCounts);
         setVotesByText(textVoteCounts);
-        setHasVoted(playerHasVoted);
-        setSelectedOptionId(playerSelectedOption);
+        
+        // Reset error count on successful fetch
+        errorCountRef.current = 0;
       }
     } catch (error) {
-      console.error('Error fetching poll data:', error);
+      console.error('Error initializing poll:', error);
+      errorCountRef.current++;
+    } finally {
+      setIsLoading(false);
     }
   }, [activationId, options, playerId]);
 
-  // Poll for updates every 2 seconds
-  useEffect(() => {
-    if (!activationId) {
-      // Reset state when no activation
-      setVotes({});
-      setVotesByText({});
-      setHasVoted(false);
-      setSelectedOptionId(null);
-      setPollState('pending');
-      return;
-    }
+  // Reset poll state
+  const resetPoll = useCallback(() => {
+    setVotes({});
+    setVotesByText({});
+    setHasVoted(false);
+    setSelectedOptionId(null);
+    setPollState('pending');
 
-    // Initial fetch
-    setIsLoading(true);
-    fetchPollData().finally(() => setIsLoading(false));
+    // Clear polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
     
-    // Set up polling interval
-    const interval = setInterval(() => {
-      fetchPollData();
+    // Reset error count
+    errorCountRef.current = 0;
+  }, []);
+
+  // Effect to handle activation changes
+  useEffect(() => {
+    if (activationId !== currentActivationIdRef.current) {
+      currentActivationIdRef.current = activationId;
+      resetPoll();
+    }
+  }, [activationId, resetPoll]);
+
+  // Set up real-time subscriptions
+  useEffect(() => {
+    if (!activationId) return;
+    
+    // Initial fetch
+    initializePoll();
+    
+    // Set up polling interval - more reliable than subscriptions in some cases
+    const pollInterval = setInterval(() => {
+      initializePoll();
     }, 2000); // Poll every 2 seconds
+    
+    pollingIntervalRef.current = pollInterval;
     
     // Cleanup
     return () => {
-      clearInterval(interval);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     };
-  }, [activationId, fetchPollData]);
+  }, [activationId, playerId]);
 
   // Submit vote
   const submitVote = useCallback(async (optionId: string): Promise<{ success: boolean; error?: string }> => {
@@ -176,68 +213,73 @@ export function usePollManager({
     }
 
     try {
-      // Find the option
-      const option = options.find(opt => opt.id === optionId);
-      if (!option) {
-        return { success: false, error: 'Invalid option' };
-      }
-
-      console.log('Submitting vote:', { activationId, playerId, optionId, optionText: option.text });
-
-      // Submit the vote
-      const { error } = await supabase
-        .from('poll_votes')
-        .insert({
-          activation_id: activationId,
-          player_id: playerId,
-          option_id: optionId,
-          option_text: option.text
-        });
-
-      if (error) {
-        console.error('Vote submission error:', error);
-        // Check for duplicate vote
-        if (error.code === '23505') {
-          return { success: false, error: 'You have already voted' };
+      // Use retry for better error handling
+      return await retry(async () => {
+        // Find the option
+        const option = options.find(opt => opt.id === optionId);
+        if (!option) {
+          return { success: false, error: 'Invalid option' };
         }
-        throw error;
-      }
 
-      // Update local state immediately for better UX
-      setHasVoted(true);
-      setSelectedOptionId(optionId);
-      
-      // Update vote counts immediately (optimistic update)
-      setVotes(prev => ({
-        ...prev,
-        [optionId]: (prev[optionId] || 0) + 1
-      }));
-      
-      setVotesByText(prev => ({
-        ...prev,
-        [option.text]: (prev[option.text] || 0) + 1
-      }));
+        console.log('Submitting vote:', { activationId, playerId, optionId, optionText: option.text });
 
-      console.log('Vote submitted successfully');
-      
-      // Force a refresh to get the latest data
-      setTimeout(fetchPollData, 500);
-      
-      return { success: true };
+        // Submit the vote
+        const { error } = await supabase
+          .from('poll_votes')
+          .insert({
+            activation_id: activationId,
+            player_id: playerId,
+            option_id: optionId,
+            option_text: option.text
+          });
+
+        if (error) {
+          // Check for duplicate vote
+          if (error.code === '23505') {
+            return { success: false, error: 'You have already voted in this poll' };
+          }
+          throw error;
+        }
+
+        // Update local state immediately for optimistic UI
+        setHasVoted(true);
+        setSelectedOptionId(optionId);
+        
+        // Update vote counts immediately
+        setVotes(prev => ({
+          ...prev,
+          [optionId]: (prev[optionId] || 0) + 1
+        }));
+        
+        setVotesByText(prev => ({
+          ...prev,
+          [option.text]: (prev[option.text] || 0) + 1
+        }));
+
+        console.log('Vote submitted successfully');
+        
+        // Force a refresh to get the latest data
+        setTimeout(initializePoll, 500);
+        
+        return { success: true };
+      }, 3);
     } catch (error: any) {
       console.error('Error submitting vote:', error);
-      return { success: false, error: error.message || 'Failed to submit vote' };
+      
+      // Check if it's a network error
+      if (isNetworkError(error)) {
+        return { 
+          success: false, 
+          error: 'Network error. Your vote will be saved when connection is restored.' 
+        };
+      }
+      
+      return { 
+        success: false, 
+        error: error.message || 'Failed to submit vote. Please try again.' 
+      };
     }
-  }, [activationId, playerId, hasVoted, pollState, options, fetchPollData]);
-
-  // Reset poll state
-  const resetPoll = useCallback(() => {
-    setVotes({});
-    setVotesByText({});
-    setHasVoted(false);
-    setSelectedOptionId(null);
-    setPollState('pending');
-  }, []);
+  }, [activationId, playerId, hasVoted, pollState, options]);
 
   // Calculate total votes
   const getTotalVotes = useCallback((): number => {
